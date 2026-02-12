@@ -1,0 +1,118 @@
+.container { max-width: 900px; }
+.container h1 { font-size: 24px; font-weight: 600; margin-bottom: 24px; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.cardIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cardLabel {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cardValue {
+  font-size: 20px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.section h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.upcomingList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upcomingItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+}
+.upcomingItem:hover { background: var(--color-surface-hover); }
+
+.warningItem { background: rgba(239, 68, 68, 0.05); }
+
+.upcomingName { flex: 1; font-weight: 500; }
+.upcomingDue { font-size: 13px; color: var(--color-text-muted); margin: 0 16px; }
+.upcomingAmount { font-weight: 600; }
+.autoTag { font-size: 10px; color: var(--color-success); margin-left: 4px; text-transform: uppercase; }
+
+.emptySection { color: var(--color-text-muted); font-size: 13px; padding: 8px; }
+
+.periodList { display: flex; flex-direction: column; gap: 10px; }
+
+.periodItem {}
+
+.periodHeader {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.periodSource { color: var(--color-primary); font-size: 11px; }
+
+.progressBar {
+  height: 6px;
+  background: var(--color-bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.loading { color: var(--color-text-muted); padding: 60px; text-align: center; }
+
+@media (max-width: 767px) {
+  .cards { grid-template-columns: 1fr 1fr; }
+  .cardValue { font-size: 16px; }
+}

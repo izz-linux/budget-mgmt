@@ -1,0 +1,24 @@
+# Go
+bin/
+*.exe
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+*.local
+
+# Data
+pgdata/
