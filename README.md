@@ -109,22 +109,34 @@ make build
 - Kubernetes cluster (EKS, GKE, AKS, or self-managed)
 - `kubectl` configured with cluster access
 - Container registry accessible to the cluster (e.g., Docker Hub, ECR, GCR, ACR)
+- NGINX Ingress Controller
+- cert-manager with a `letsencrypt-prod` ClusterIssuer (for TLS)
+- DNS configured to point your domain to the Ingress controller
 
 ### Deploy
+
+The k8s manifests are pre-configured to use Docker Hub images with immutable release tags:
+- `izznoland/budget-api:<version>`
+- `izznoland/budget-ui:<version>`
+
+```bash
+# Deploy all resources
+make k8s-deploy
+```
+
+To build and push custom images:
 
 ```bash
 # Build and push Docker images to your registry
 export REGISTRY=your-registry.com/your-org
-docker build -t $REGISTRY/budget-api:latest ./backend
-docker build -t $REGISTRY/budget-ui:latest ./frontend
-docker push $REGISTRY/budget-api:latest
-docker push $REGISTRY/budget-ui:latest
+export VERSION=vX.Y.Z  # Use immutable release tags, not :latest
+docker build -t $REGISTRY/budget-api:$VERSION ./backend
+docker build -t $REGISTRY/budget-ui:$VERSION ./frontend
+docker push $REGISTRY/budget-api:$VERSION
+docker push $REGISTRY/budget-ui:$VERSION
 
-# Update image references in k8s manifests (or use kustomize/helm)
+# Update image references in k8s manifests
 # k8s/backend/deployment.yaml and k8s/frontend/deployment.yaml
-
-# Deploy all resources
-make k8s-deploy
 ```
 
 ### Access
@@ -132,12 +144,19 @@ make k8s-deploy
 ```bash
 # Check deployment status
 make k8s-status
+```
 
-# Frontend is exposed via NodePort on port 30080
-# Access via any cluster node IP: http://<node-ip>:30080
+**Production:** The application is accessible via Ingress with TLS at:
+- https://budget.izznoland.dev
 
-# Or use kubectl port-forward for local access
-kubectl -n budget-app port-forward svc/frontend 3000:80
+The Ingress is configured with:
+- Let's Encrypt TLS certificates via cert-manager
+- Automatic HTTP to HTTPS redirect
+- Path-based routing (`/api` → backend, `/` → frontend)
+
+**Local development:** Use port-forward for local cluster access:
+```bash
+kubectl -n budget-app port-forward svc/budget-ui 3000:80
 # Then access at http://localhost:3000
 ```
 
@@ -155,7 +174,12 @@ All resources are deployed to the `budget-app` namespace:
 |-----------|------|--------|
 | PostgreSQL | Deployment + PVC | ClusterIP (internal) |
 | Backend API | Deployment | ClusterIP (internal) |
-| Frontend | Deployment | NodePort 30080 |
+| Frontend | Deployment | ClusterIP (internal) |
+| Ingress | Ingress (nginx) | HTTPS via cert-manager |
+
+**Prerequisites for Ingress:**
+- NGINX Ingress Controller installed in the cluster
+- cert-manager installed with a `letsencrypt-prod` ClusterIssuer configured
 
 ## Environment Variables
 
