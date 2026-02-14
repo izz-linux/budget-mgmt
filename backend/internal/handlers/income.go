@@ -6,15 +6,14 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 )
 
 type IncomeHandler struct {
-	db *pgxpool.Pool
+	db DBTX
 }
 
-func NewIncomeHandler(db *pgxpool.Pool) *IncomeHandler {
+func NewIncomeHandler(db DBTX) *IncomeHandler {
 	return &IncomeHandler{db: db}
 }
 

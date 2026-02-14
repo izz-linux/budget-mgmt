@@ -6,15 +6,14 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 )
 
 type BillHandler struct {
-	db *pgxpool.Pool
+	db DBTX
 }
 
-func NewBillHandler(db *pgxpool.Pool) *BillHandler {
+func NewBillHandler(db DBTX) *BillHandler {
 	return &BillHandler{db: db}
 }
 
@@ -24,7 +23,7 @@ func (h *BillHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT b.id, b.name, b.default_amount, b.due_day, b.recurrence,
-		       b.recurrence_detail, b.is_autopay, b.category, b.notes,
+		       b.recurrence_detail, b.is_autopay, COALESCE(b.category, ''), COALESCE(b.notes, ''),
 		       b.is_active, b.sort_order, b.created_at, b.updated_at,
 		       cc.id, cc.card_label, cc.statement_day, cc.due_day, cc.issuer, cc.created_at
 		FROM bills b
@@ -94,7 +93,7 @@ func (h *BillHandler) Get(w http.ResponseWriter, r *http.Request) {
 	var b models.Bill
 	err = h.db.QueryRow(ctx, `
 		SELECT id, name, default_amount, due_day, recurrence, recurrence_detail,
-		       is_autopay, category, notes, is_active, sort_order, created_at, updated_at
+		       is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order, created_at, updated_at
 		FROM bills WHERE id = $1
 	`, id).Scan(
 		&b.ID, &b.Name, &b.DefaultAmount, &b.DueDay, &b.Recurrence,
@@ -141,7 +140,7 @@ func (h *BillHandler) Create(w http.ResponseWriter, r *http.Request) {
 		                   is_autopay, category, notes, sort_order)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, name, default_amount, due_day, recurrence, recurrence_detail,
-		          is_autopay, category, notes, is_active, sort_order, created_at, updated_at
+		          is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order, created_at, updated_at
 	`, req.Name, req.DefaultAmount, req.DueDay, req.Recurrence, req.RecurrenceDetail,
 		req.IsAutopay, req.Category, req.Notes, req.SortOrder,
 	).Scan(
@@ -204,7 +203,7 @@ func (h *BillHandler) Update(w http.ResponseWriter, r *http.Request) {
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING id, name, default_amount, due_day, recurrence, recurrence_detail,
-		          is_autopay, category, notes, is_active, sort_order, created_at, updated_at
+		          is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order, created_at, updated_at
 	`, id, req.Name, req.DefaultAmount, req.DueDay, req.Recurrence,
 		req.RecurrenceDetail, req.IsAutopay, req.Category, req.Notes,
 		req.IsActive, req.SortOrder,

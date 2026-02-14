@@ -7,20 +7,19 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 	"github.com/izz-linux/budget-mgmt/backend/internal/services"
 )
 
 type ImportHandler struct {
-	db       *pgxpool.Pool
+	db       DBTX
 	importer *services.XLSXImporter
 	// Store the last preview for confirmation
 	lastPreview *services.ImportPreview
 	lastFile    string
 }
 
-func NewImportHandler(db *pgxpool.Pool) *ImportHandler {
+func NewImportHandler(db DBTX) *ImportHandler {
 	return &ImportHandler{
 		db:       db,
 		importer: services.NewXLSXImporter(),
