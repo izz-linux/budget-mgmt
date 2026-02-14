@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, RefreshCw } from 'lucide-react';
 import { gridApi } from '../../api/grid';
 import { assignmentsApi } from '../../api/assignments';
+import { periodsApi } from '../../api/periods';
 import { useBudgetStore } from '../../stores/budgetStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { Bill, PayPeriod, BillAssignment } from '../../types';
@@ -51,6 +52,11 @@ export function BudgetGrid() {
   const statusCycle = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) =>
       assignmentsApi.updateStatus(id, status),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+  });
+
+  const generatePeriods = useMutation({
+    mutationFn: () => periodsApi.generate(dateRange.from, dateRange.to),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
   });
 
@@ -147,7 +153,18 @@ export function BudgetGrid() {
   if (isMobile) {
     const period = periods[selectedPeriodIndex];
     if (!period) {
-      return <div className={styles.empty}>No pay periods found. Generate periods from your income sources first.</div>;
+      return (
+        <div className={styles.empty}>
+          No pay periods found.
+          <button
+            className={styles.generateBtn}
+            onClick={() => generatePeriods.mutate()}
+            disabled={generatePeriods.isPending}
+          >
+            <RefreshCw size={16} /> {generatePeriods.isPending ? 'Generating...' : 'Generate Periods'}
+          </button>
+        </div>
+      );
     }
 
     return (
@@ -280,7 +297,14 @@ export function BudgetGrid() {
 
       {periods.length === 0 ? (
         <div className={styles.empty}>
-          No pay periods in this range. Go to Income Sources and generate periods first.
+          No pay periods in this range.
+          <button
+            className={styles.generateBtn}
+            onClick={() => generatePeriods.mutate()}
+            disabled={generatePeriods.isPending}
+          >
+            <RefreshCw size={16} /> {generatePeriods.isPending ? 'Generating...' : 'Generate Periods'}
+          </button>
         </div>
       ) : (
         <div className={styles.gridWrapper} ref={gridRef}>
