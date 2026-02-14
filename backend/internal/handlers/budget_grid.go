@@ -5,15 +5,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 )
 
 type GridHandler struct {
-	db *pgxpool.Pool
+	db DBTX
 }
 
-func NewGridHandler(db *pgxpool.Pool) *GridHandler {
+func NewGridHandler(db DBTX) *GridHandler {
 	return &GridHandler{db: db}
 }
 
@@ -37,7 +36,7 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 	// Fetch bills
 	billRows, err := h.db.Query(ctx, `
 		SELECT b.id, b.name, b.default_amount, b.due_day, b.recurrence,
-		       b.recurrence_detail, b.is_autopay, b.category, b.notes,
+		       b.recurrence_detail, b.is_autopay, COALESCE(b.category, ''), COALESCE(b.notes, ''),
 		       b.is_active, b.sort_order, b.created_at, b.updated_at,
 		       cc.id, cc.card_label, cc.statement_day, cc.due_day, cc.issuer
 		FROM bills b
@@ -88,7 +87,7 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 	// Fetch periods with totals
 	periodRows, err := h.db.Query(ctx, `
 		SELECT pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
-		       pp.actual_amount, pp.notes, pp.created_at, inc.name,
+		       pp.actual_amount, COALESCE(pp.notes, ''), pp.created_at, inc.name,
 		       COALESCE(SUM(ba.planned_amount), 0) as total_bills
 		FROM pay_periods pp
 		JOIN income_sources inc ON inc.id = pp.income_source_id
@@ -126,7 +125,7 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 		assignRows, err := h.db.Query(ctx, `
 			SELECT ba.id, ba.bill_id, ba.pay_period_id, ba.planned_amount,
 			       ba.forecast_amount, ba.actual_amount, ba.status, ba.deferred_to_id,
-			       ba.is_extra, ba.extra_name, ba.notes, ba.created_at, ba.updated_at,
+			       ba.is_extra, COALESCE(ba.extra_name, ''), COALESCE(ba.notes, ''), ba.created_at, ba.updated_at,
 			       b.name
 			FROM bill_assignments ba
 			JOIN bills b ON b.id = ba.bill_id

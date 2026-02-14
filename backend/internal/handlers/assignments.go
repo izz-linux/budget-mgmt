@@ -6,15 +6,14 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 )
 
 type AssignmentHandler struct {
-	db *pgxpool.Pool
+	db DBTX
 }
 
-func NewAssignmentHandler(db *pgxpool.Pool) *AssignmentHandler {
+func NewAssignmentHandler(db DBTX) *AssignmentHandler {
 	return &AssignmentHandler{db: db}
 }
 
@@ -24,7 +23,7 @@ func (h *AssignmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT ba.id, ba.bill_id, ba.pay_period_id, ba.planned_amount,
 		       ba.forecast_amount, ba.actual_amount, ba.status, ba.deferred_to_id,
-		       ba.is_extra, ba.extra_name, ba.notes, ba.created_at, ba.updated_at,
+		       ba.is_extra, COALESCE(ba.extra_name, ''), COALESCE(ba.notes, ''), ba.created_at, ba.updated_at,
 		       b.name
 		FROM bill_assignments ba
 		JOIN bills b ON b.id = ba.bill_id
@@ -98,7 +97,7 @@ func (h *AssignmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		                              actual_amount, status, is_extra, extra_name, notes)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
-		          status, deferred_to_id, is_extra, extra_name, notes, created_at, updated_at
+		          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
 	`, req.BillID, req.PayPeriodID, req.PlannedAmount, req.ForecastAmount,
 		req.ActualAmount, req.Status, req.IsExtra, req.ExtraName, req.Notes,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
@@ -138,7 +137,7 @@ func (h *AssignmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
-		          status, deferred_to_id, is_extra, extra_name, notes, created_at, updated_at
+		          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
 	`, id, req.PlannedAmount, req.ForecastAmount, req.ActualAmount,
 		req.Status, req.DeferredToID, req.Notes,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
@@ -182,7 +181,7 @@ func (h *AssignmentHandler) UpdateStatus(w http.ResponseWriter, r *http.Request)
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
-		          status, deferred_to_id, is_extra, extra_name, notes, created_at, updated_at
+		          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
 	`, id, req.Status, req.DeferredToID,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 		&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,

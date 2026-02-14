@@ -7,17 +7,16 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 	"github.com/izz-linux/budget-mgmt/backend/internal/services"
 )
 
 type PeriodHandler struct {
-	db        *pgxpool.Pool
+	db        DBTX
 	generator *services.PeriodGenerator
 }
 
-func NewPeriodHandler(db *pgxpool.Pool) *PeriodHandler {
+func NewPeriodHandler(db DBTX) *PeriodHandler {
 	return &PeriodHandler{
 		db:        db,
 		generator: services.NewPeriodGenerator(),
@@ -38,7 +37,7 @@ func (h *PeriodHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.Query(ctx, `
 		SELECT pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
-		       pp.actual_amount, pp.notes, pp.created_at, inc.name,
+		       pp.actual_amount, COALESCE(pp.notes, ''), pp.created_at, inc.name,
 		       COALESCE(SUM(ba.planned_amount), 0) as total_bills
 		FROM pay_periods pp
 		JOIN income_sources inc ON inc.id = pp.income_source_id
@@ -136,7 +135,7 @@ func (h *PeriodHandler) Generate(w http.ResponseWriter, r *http.Request) {
 				VALUES ($1, $2, $3)
 				ON CONFLICT (income_source_id, pay_date) DO UPDATE SET
 					expected_amount = COALESCE(EXCLUDED.expected_amount, pay_periods.expected_amount)
-				RETURNING id, income_source_id, pay_date, expected_amount, actual_amount, notes, created_at
+				RETURNING id, income_source_id, pay_date, expected_amount, actual_amount, COALESCE(notes, ''), created_at
 			`, source.ID, date, source.DefaultAmount).Scan(
 				&p.ID, &p.IncomeSourceID, &p.PayDate, &p.ExpectedAmount,
 				&p.ActualAmount, &p.Notes, &p.CreatedAt,
@@ -181,7 +180,7 @@ func (h *PeriodHandler) Update(w http.ResponseWriter, r *http.Request) {
 			actual_amount = COALESCE($3, actual_amount),
 			notes = COALESCE($4, notes)
 		WHERE id = $1
-		RETURNING id, income_source_id, pay_date, expected_amount, actual_amount, notes, created_at
+		RETURNING id, income_source_id, pay_date, expected_amount, actual_amount, COALESCE(notes, ''), created_at
 	`, id, body.ExpectedAmount, body.ActualAmount, body.Notes).Scan(
 		&p.ID, &p.IncomeSourceID, &p.PayDate, &p.ExpectedAmount,
 		&p.ActualAmount, &p.Notes, &p.CreatedAt,

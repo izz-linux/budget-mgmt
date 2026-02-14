@@ -5,18 +5,17 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 	"github.com/izz-linux/budget-mgmt/backend/internal/services"
 )
 
 type OptimizerHandler struct {
-	db              *pgxpool.Pool
+	db              DBTX
 	optimizer       *services.Optimizer
 	surplusDetector *services.SurplusDetector
 }
 
-func NewOptimizerHandler(db *pgxpool.Pool) *OptimizerHandler {
+func NewOptimizerHandler(db DBTX) *OptimizerHandler {
 	return &OptimizerHandler{
 		db:              db,
 		optimizer:       services.NewOptimizer(),

@@ -4,15 +4,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 )
 
 type DashboardHandler struct {
-	db *pgxpool.Pool
+	db DBTX
 }
 
-func NewDashboardHandler(db *pgxpool.Pool) *DashboardHandler {
+func NewDashboardHandler(db DBTX) *DashboardHandler {
 	return &DashboardHandler{db: db}
 }
 
