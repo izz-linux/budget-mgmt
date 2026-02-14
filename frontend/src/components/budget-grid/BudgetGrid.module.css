@@ -218,6 +218,31 @@ thead .stickyCol {
   padding: 60px 24px;
   text-align: center;
   font-size: 15px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.generateBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.generateBtn:hover {
+  opacity: 0.9;
+}
+.generateBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ========== Mobile ========== */

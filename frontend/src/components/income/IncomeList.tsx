@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { incomeApi } from '../../api/income';
+import { periodsApi } from '../../api/periods';
+import { useBudgetStore } from '../../stores/budgetStore';
 import { IncomeForm } from './IncomeForm';
 import type { IncomeSource } from '../../types';
 import styles from './IncomeList.module.css';
@@ -14,6 +16,7 @@ const scheduleLabels: Record<string, string> = {
 
 export function IncomeList() {
   const queryClient = useQueryClient();
+  const { dateRange } = useBudgetStore();
   const [editingSource, setEditingSource] = useState<IncomeSource | null>(null);
   const [showForm, setShowForm] = useState(false);
 
@@ -27,6 +30,11 @@ export function IncomeList() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['income-sources'] }),
   });
 
+  const generateMutation = useMutation({
+    mutationFn: () => periodsApi.generate(dateRange.from, dateRange.to),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+  });
+
   const handleClose = () => {
     setEditingSource(null);
     setShowForm(false);
@@ -38,9 +46,20 @@ export function IncomeList() {
     <div className={styles.container}>
       <div className={styles.header}>
         <h1>Income Sources</h1>
-        <button className={styles.addBtn} onClick={() => setShowForm(true)}>
-          <Plus size={18} /> Add Source
-        </button>
+        <div className={styles.headerActions}>
+          {sources.length > 0 && (
+            <button
+              className={styles.generateBtn}
+              onClick={() => generateMutation.mutate()}
+              disabled={generateMutation.isPending}
+            >
+              <RefreshCw size={16} /> {generateMutation.isPending ? 'Generating...' : 'Generate Periods'}
+            </button>
+          )}
+          <button className={styles.addBtn} onClick={() => setShowForm(true)}>
+            <Plus size={18} /> Add Source
+          </button>
+        </div>
       </div>
 
       <div className={styles.list}>

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { incomeApi } from '../../api/income';
+import { periodsApi } from '../../api/periods';
+import { useBudgetStore } from '../../stores/budgetStore';
 import type { IncomeSource } from '../../types';
 import styles from '../bills/BillForm.module.css'; // reuse bill form styles
 
@@ -12,6 +14,7 @@ interface IncomeFormProps {
 
 export function IncomeForm({ source, onClose }: IncomeFormProps) {
   const queryClient = useQueryClient();
+  const { dateRange } = useBudgetStore();
   const isEditing = !!source;
 
   const detail = source?.schedule_detail as Record<string, unknown> | undefined;
@@ -28,8 +31,15 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
 
   const createMutation = useMutation({
     mutationFn: (data: Partial<IncomeSource>) => incomeApi.create(data),
-    onSuccess: () => {
+    onSuccess: async (created) => {
       queryClient.invalidateQueries({ queryKey: ['income-sources'] });
+      // Auto-generate pay periods for the new income source
+      try {
+        await periodsApi.generate(dateRange.from, dateRange.to, [created.id]);
+        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      } catch {
+        // Period generation is best-effort; user can retry from budget grid
+      }
       onClose();
     },
   });
