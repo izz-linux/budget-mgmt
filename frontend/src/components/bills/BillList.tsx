@@ -13,12 +13,15 @@ export function BillList() {
 
   const { data: bills = [], isLoading } = useQuery({
     queryKey: ['bills'],
-    queryFn: () => billsApi.list(),
+    queryFn: () => billsApi.list(true),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => billsApi.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bills'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bills'] });
+      queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+    },
   });
 
   const handleEdit = (bill: Bill) => {

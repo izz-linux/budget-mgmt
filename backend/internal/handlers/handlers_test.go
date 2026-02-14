@@ -672,6 +672,588 @@ func TestImportUpload_NoFile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// AutoAssign: validation
+// ---------------------------------------------------------------------------
+
+func TestAutoAssign_InvalidJSON(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{bad json`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "INVALID_JSON")
+}
+
+func TestAutoAssign_InvalidFromDate(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"not-a-date","to":"2026-03-01"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "VALIDATION_ERROR")
+}
+
+func TestAutoAssign_InvalidToDate(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-01-01","to":"bad"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "VALIDATION_ERROR")
+}
+
+func TestAutoAssign_NoBills(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"})
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-01-01","to":"2026-03-31"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	// Should return empty array
+	var resp struct {
+		Data []interface{} `json:"data"`
+	}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if len(resp.Data) != 0 {
+		t.Errorf("expected empty data, got %d items", len(resp.Data))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestAutoAssign_NoPeriods(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
+
+	periodRows := pgxmock.NewRows([]string{"id", "pay_date"})
+	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-01-01","to":"2026-03-31"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestAutoAssign_MatchesBillsToPeriods(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
+
+	// Two periods: Feb 7 and Feb 21
+	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
+		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC)).
+		AddRow(11, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC))
+	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+
+	// Bill due on 15th should be assigned to period 10 (Feb 7, last period on or before 15th)
+	now := time.Now()
+	assignRow := pgxmock.NewRows([]string{
+		"id", "bill_id", "pay_period_id", "planned_amount", "forecast_amount",
+		"actual_amount", "status", "deferred_to_id", "is_extra", "extra_name",
+		"notes", "created_at", "updated_at",
+	}).AddRow(1, 1, 10, float64Ptr(100.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", now, now)
+
+	mock.ExpectQuery("INSERT INTO bill_assignments").
+		WithArgs(1, 10, float64Ptr(100.0)).
+		WillReturnRows(assignRow)
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-02-01","to":"2026-02-28"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestAutoAssign_UsesFirstPeriodWhenNoneBeforeDueDate(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	// Bill due on the 3rd
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
+		AddRow(1, "Internet", float64Ptr(50.0), 3, "monthly")
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
+
+	// Only period is on the 7th (after due date)
+	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
+		AddRow(10, time.Date(2026, 3, 7, 0, 0, 0, 0, time.UTC))
+	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+
+	// Should still assign to period 10 (first available in that month)
+	now := time.Now()
+	assignRow := pgxmock.NewRows([]string{
+		"id", "bill_id", "pay_period_id", "planned_amount", "forecast_amount",
+		"actual_amount", "status", "deferred_to_id", "is_extra", "extra_name",
+		"notes", "created_at", "updated_at",
+	}).AddRow(1, 1, 10, float64Ptr(50.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", now, now)
+
+	mock.ExpectQuery("INSERT INTO bill_assignments").
+		WithArgs(1, 10, float64Ptr(50.0)).
+		WillReturnRows(assignRow)
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-03-01","to":"2026-03-31"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestAutoAssign_SkipsExistingAssignments(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
+
+	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
+		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC))
+	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+
+	// ON CONFLICT DO NOTHING - returns no rows (assignment already exists)
+	mock.ExpectQuery("INSERT INTO bill_assignments").
+		WithArgs(1, 10, float64Ptr(100.0)).
+		WillReturnError(fmt.Errorf("no rows in result set"))
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-02-01","to":"2026-02-28"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	// Should return 201 with empty array (no new assignments created)
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestAutoAssign_BillQueryError(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnError(fmt.Errorf("db connection lost"))
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-01-01","to":"2026-03-31"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "DB_ERROR")
+}
+
+func TestAutoAssign_PeriodQueryError(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
+
+	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnError(fmt.Errorf("db error"))
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-01-01","to":"2026-03-31"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "DB_ERROR")
+}
+
+// ---------------------------------------------------------------------------
+// Bill Delete: Success cases
+// ---------------------------------------------------------------------------
+
+func TestBillDelete_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("UPDATE bills SET is_active = false").
+		WithArgs(1).
+		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+
+	h := NewBillHandler(mock)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/bills/1", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(withChiContext(req.Context(), rctx))
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestBillDelete_NotFound(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("UPDATE bills SET is_active = false").
+		WithArgs(999).
+		WillReturnResult(pgxmock.NewResult("UPDATE", 0))
+
+	h := NewBillHandler(mock)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/bills/999", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "999")
+	req = req.WithContext(withChiContext(req.Context(), rctx))
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "NOT_FOUND")
+}
+
+func TestBillDelete_DBError(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("UPDATE bills SET is_active = false").
+		WithArgs(1).
+		WillReturnError(fmt.Errorf("connection lost"))
+
+	h := NewBillHandler(mock)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/bills/1", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(withChiContext(req.Context(), rctx))
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "DB_ERROR")
+}
+
+// ---------------------------------------------------------------------------
+// Assignment Delete: Success cases
+// ---------------------------------------------------------------------------
+
+func TestAssignmentDelete_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("DELETE FROM bill_assignments").
+		WithArgs(5).
+		WillReturnResult(pgxmock.NewResult("DELETE", 1))
+
+	h := NewAssignmentHandler(mock)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/assignments/5", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "5")
+	req = req.WithContext(withChiContext(req.Context(), rctx))
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestAssignmentDelete_NotFound(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("DELETE FROM bill_assignments").
+		WithArgs(999).
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+
+	h := NewAssignmentHandler(mock)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/assignments/999", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "999")
+	req = req.WithContext(withChiContext(req.Context(), rctx))
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "NOT_FOUND")
+}
+
+func TestAssignmentDelete_DBError(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("DELETE FROM bill_assignments").
+		WithArgs(1).
+		WillReturnError(fmt.Errorf("connection lost"))
+
+	h := NewAssignmentHandler(mock)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/assignments/1", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(withChiContext(req.Context(), rctx))
+
+	rr := httptest.NewRecorder()
+	h.Delete(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "DB_ERROR")
+}
+
+// ---------------------------------------------------------------------------
+// Period Update: Success and error cases
+// ---------------------------------------------------------------------------
+
+func TestPeriodUpdate_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	now := time.Now()
+	payDate := time.Date(2026, 2, 14, 0, 0, 0, 0, time.UTC)
+	rows := pgxmock.NewRows([]string{
+		"id", "income_source_id", "pay_date", "expected_amount", "actual_amount", "notes", "created_at",
+	}).AddRow(1, 1, payDate, float64Ptr(2000.0), (*float64)(nil), "", now)
+
+	mock.ExpectQuery("UPDATE pay_periods SET").
+		WithArgs(1, float64Ptr(2000.0), (*float64)(nil), (*string)(nil)).
+		WillReturnRows(rows)
+
+	h := NewPeriodHandler(mock)
+	body := bytes.NewBufferString(`{"expected_amount":2000}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/pay-periods/1", body)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(withChiContext(req.Context(), rctx))
+
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestPeriodUpdate_NotFound(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery("UPDATE pay_periods SET").
+		WithArgs(999, float64Ptr(1500.0), (*float64)(nil), (*string)(nil)).
+		WillReturnError(fmt.Errorf("no rows in result set"))
+
+	h := NewPeriodHandler(mock)
+	body := bytes.NewBufferString(`{"expected_amount":1500}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/pay-periods/999", body)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "999")
+	req = req.WithContext(withChiContext(req.Context(), rctx))
+
+	rr := httptest.NewRecorder()
+	h.Update(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Bill List: active filter
+// ---------------------------------------------------------------------------
+
+func TestBillList_ActiveFilter(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	rows := pgxmock.NewRows([]string{
+		"id", "name", "default_amount", "due_day", "recurrence",
+		"recurrence_detail", "is_autopay", "category", "notes",
+		"is_active", "sort_order", "created_at", "updated_at",
+		"cc_id", "cc_label", "cc_statement_day", "cc_due_day", "cc_issuer",
+	})
+	mock.ExpectQuery("SELECT (.+) FROM bills (.+) WHERE b.is_active = true").WillReturnRows(rows)
+
+	h := NewBillHandler(mock)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bills?active=true", nil)
+	rr := httptest.NewRecorder()
+	h.List(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestBillList_NoFilter(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	rows := pgxmock.NewRows([]string{
+		"id", "name", "default_amount", "due_day", "recurrence",
+		"recurrence_detail", "is_autopay", "category", "notes",
+		"is_active", "sort_order", "created_at", "updated_at",
+		"cc_id", "cc_label", "cc_statement_day", "cc_due_day", "cc_issuer",
+	})
+	// Should NOT have WHERE is_active in query
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(rows)
+
+	h := NewBillHandler(mock)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bills", nil)
+	rr := httptest.NewRecorder()
+	h.List(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

@@ -3,7 +3,9 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
@@ -213,4 +215,167 @@ func (h *AssignmentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		models.WriteError(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		return
+	}
+	fromDate, err := time.Parse("2006-01-02", req.From)
+	if err != nil {
+		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid from date")
+		return
+	}
+	toDate, err := time.Parse("2006-01-02", req.To)
+	if err != nil {
+		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid to date")
+		return
+	}
+
+	// Get active bills with due_day set
+	billRows, err := h.db.Query(ctx, `
+		SELECT id, name, default_amount, due_day, recurrence
+		FROM bills
+		WHERE is_active = true AND due_day IS NOT NULL
+		ORDER BY id
+	`)
+	if err != nil {
+		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	defer billRows.Close()
+
+	type billInfo struct {
+		ID            int
+		DefaultAmount *float64
+		DueDay        int
+		Recurrence    string
+	}
+	var bills []billInfo
+	for billRows.Next() {
+		var b billInfo
+		var name string
+		if err := billRows.Scan(&b.ID, &name, &b.DefaultAmount, &b.DueDay, &b.Recurrence); err != nil {
+			models.WriteError(w, http.StatusInternalServerError, "SCAN_ERROR", err.Error())
+			return
+		}
+		bills = append(bills, b)
+	}
+
+	if len(bills) == 0 {
+		models.WriteJSON(w, http.StatusOK, []models.BillAssignment{})
+		return
+	}
+
+	// Get all periods in range
+	periodRows, err := h.db.Query(ctx, `
+		SELECT id, pay_date FROM pay_periods
+		WHERE pay_date >= $1 AND pay_date <= $2
+		ORDER BY pay_date
+	`, req.From, req.To)
+	if err != nil {
+		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	defer periodRows.Close()
+
+	type periodInfo struct {
+		ID      int
+		PayDate time.Time
+	}
+	var periods []periodInfo
+	for periodRows.Next() {
+		var p periodInfo
+		if err := periodRows.Scan(&p.ID, &p.PayDate); err != nil {
+			models.WriteError(w, http.StatusInternalServerError, "SCAN_ERROR", err.Error())
+			return
+		}
+		periods = append(periods, p)
+	}
+
+	if len(periods) == 0 {
+		models.WriteJSON(w, http.StatusOK, []models.BillAssignment{})
+		return
+	}
+
+	// For each bill, for each month in range, find the best period and create assignment
+	var created []models.BillAssignment
+	current := time.Date(fromDate.Year(), fromDate.Month(), 1, 0, 0, 0, 0, time.UTC)
+	endMonth := time.Date(toDate.Year(), toDate.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+	for !current.After(endMonth) {
+		year, month := current.Year(), current.Month()
+
+		for _, bill := range bills {
+			// Calculate due date for this month
+			dueDate := time.Date(year, month, bill.DueDay, 0, 0, 0, 0, time.UTC)
+			// Clamp to last day of month
+			lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+			if bill.DueDay > lastDay {
+				dueDate = time.Date(year, month, lastDay, 0, 0, 0, 0, time.UTC)
+			}
+
+			if dueDate.Before(fromDate) || dueDate.After(toDate) {
+				continue
+			}
+
+			// Find the last period on or before the due date
+			bestPeriod := -1
+			for i := len(periods) - 1; i >= 0; i-- {
+				if !periods[i].PayDate.After(dueDate) {
+					bestPeriod = i
+					break
+				}
+			}
+			// If no period before due date, use the first period in range
+			if bestPeriod < 0 {
+				// Find the first period in this month or after
+				idx := sort.Search(len(periods), func(i int) bool {
+					return periods[i].PayDate.Year() > year ||
+						(periods[i].PayDate.Year() == year && periods[i].PayDate.Month() >= month)
+				})
+				if idx < len(periods) {
+					bestPeriod = idx
+				}
+			}
+			if bestPeriod < 0 {
+				continue
+			}
+
+			periodID := periods[bestPeriod].ID
+
+			// Insert assignment if it doesn't exist
+			var a models.BillAssignment
+			err := h.db.QueryRow(ctx, `
+				INSERT INTO bill_assignments (bill_id, pay_period_id, planned_amount, status)
+				VALUES ($1, $2, $3, 'pending')
+				ON CONFLICT (bill_id, pay_period_id) DO NOTHING
+				RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
+				          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
+			`, bill.ID, periodID, bill.DefaultAmount).Scan(
+				&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
+				&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
+				&a.Notes, &a.CreatedAt, &a.UpdatedAt,
+			)
+			if err != nil {
+				// ON CONFLICT DO NOTHING returns no rows - that's fine, skip
+				continue
+			}
+			created = append(created, a)
+		}
+
+		current = current.AddDate(0, 1, 0)
+	}
+
+	if created == nil {
+		created = []models.BillAssignment{}
+	}
+	models.WriteJSON(w, http.StatusCreated, created)
 }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Calendar, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, RefreshCw, Trash2 } from 'lucide-react';
 import { gridApi } from '../../api/grid';
 import { assignmentsApi } from '../../api/assignments';
 import { periodsApi } from '../../api/periods';
@@ -32,6 +32,8 @@ export function BudgetGrid() {
   const gridRef = useRef<HTMLDivElement>(null);
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [editingPeriod, setEditingPeriod] = useState<number | null>(null);
+  const [periodEditValue, setPeriodEditValue] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['budget-grid', dateRange.from, dateRange.to],
@@ -55,8 +57,22 @@ export function BudgetGrid() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
   });
 
+  const deleteAssignment = useMutation({
+    mutationFn: (id: number) => assignmentsApi.delete(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+  });
+
+  const updatePeriod = useMutation({
+    mutationFn: ({ id, expected_amount }: { id: number; expected_amount: number }) =>
+      periodsApi.update(id, { expected_amount }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+  });
+
   const generatePeriods = useMutation({
-    mutationFn: () => periodsApi.generate(dateRange.from, dateRange.to),
+    mutationFn: async () => {
+      await periodsApi.generate(dateRange.from, dateRange.to);
+      await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
   });
 
@@ -137,6 +153,23 @@ export function BudgetGrid() {
     statusCycle.mutate({ id: assignment.id, status: cycle[nextIdx] });
   };
 
+  const handlePeriodAmountClick = (period: PayPeriod) => {
+    setEditingPeriod(period.id);
+    setPeriodEditValue(String(period.expected_amount ?? ''));
+  };
+
+  const handlePeriodAmountSave = (periodId: number) => {
+    const amount = periodEditValue ? Number(periodEditValue) : null;
+    if (amount != null) {
+      updatePeriod.mutate({ id: periodId, expected_amount: amount });
+    }
+    setEditingPeriod(null);
+  };
+
+  const handleDeleteAssignment = (assignment: BillAssignment) => {
+    deleteAssignment.mutate(assignment.id);
+  };
+
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -180,7 +213,11 @@ export function BudgetGrid() {
           <div className={styles.periodInfo}>
             <div className={styles.periodDate}>{formatDate(period.pay_date)}</div>
             <div className={styles.periodSource}>{period.source_name}</div>
-            <div className={styles.periodAmount}>
+            <div
+              className={styles.periodAmount}
+              onClick={() => handlePeriodAmountClick(period)}
+              style={{ cursor: 'pointer' }}
+            >
               {formatAmount(period.expected_amount)} income
             </div>
           </div>
@@ -220,6 +257,13 @@ export function BudgetGrid() {
                       >
                         {STATUS_LABELS[assignment.status]}
                       </button>
+                      <button
+                        className={styles.removeBtn}
+                        onClick={() => handleDeleteAssignment(assignment)}
+                        title="Remove"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </>
                   ) : (
                     <button
@@ -247,6 +291,30 @@ export function BudgetGrid() {
             </span>
           </div>
         </div>
+
+        {editingPeriod && (() => {
+          const p = periods.find(pp => pp.id === editingPeriod);
+          if (!p) return null;
+          return (
+            <div className={styles.editOverlay} onClick={() => setEditingPeriod(null)}>
+              <div className={styles.editModal} onClick={(e) => e.stopPropagation()}>
+                <label>Income Amount for {formatDate(p.pay_date)}</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={periodEditValue}
+                  onChange={(e) => setPeriodEditValue(e.target.value)}
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Enter') handlePeriodAmountSave(p.id); }}
+                />
+                <div className={styles.editActions}>
+                  <button onClick={() => setEditingPeriod(null)}>Cancel</button>
+                  <button className={styles.saveBtn} onClick={() => handlePeriodAmountSave(p.id)}>Save</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {editingCell && (() => {
           const [billId, periodId] = editingCell.split('-').map(Number);
@@ -316,7 +384,30 @@ export function BudgetGrid() {
                   <th key={period.id} className={styles.periodHeader}>
                     <div className={styles.headerDate}>{formatDate(period.pay_date)}</div>
                     <div className={styles.headerSource}>{period.source_name}</div>
-                    <div className={styles.headerAmount}>{formatAmount(period.expected_amount)}</div>
+                    {editingPeriod === period.id ? (
+                      <input
+                        className={styles.periodInput}
+                        type="number"
+                        step="0.01"
+                        value={periodEditValue}
+                        onChange={(e) => setPeriodEditValue(e.target.value)}
+                        onBlur={() => handlePeriodAmountSave(period.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handlePeriodAmountSave(period.id);
+                          if (e.key === 'Escape') setEditingPeriod(null);
+                        }}
+                        autoFocus
+                      />
+                    ) : (
+                      <div
+                        className={styles.headerAmount}
+                        onClick={() => handlePeriodAmountClick(period)}
+                        title="Click to adjust income for this period"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {formatAmount(period.expected_amount)}
+                      </div>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -357,14 +448,23 @@ export function BudgetGrid() {
                         ) : assignment ? (
                           <div className={styles.cellContent} onClick={() => handleCellClick(bill, period)}>
                             <span className={styles.cellAmount}>{formatAmount(assignment.planned_amount)}</span>
-                            <button
-                              className={styles.cellStatus}
-                              style={{ color: STATUS_COLORS[assignment.status] }}
-                              onClick={(e) => { e.stopPropagation(); handleStatusToggle(assignment); }}
-                              title={`Click to change status (${assignment.status})`}
-                            >
-                              {STATUS_LABELS[assignment.status]}
-                            </button>
+                            <div className={styles.cellActions}>
+                              <button
+                                className={styles.cellStatus}
+                                style={{ color: STATUS_COLORS[assignment.status] }}
+                                onClick={(e) => { e.stopPropagation(); handleStatusToggle(assignment); }}
+                                title={`Click to change status (${assignment.status})`}
+                              >
+                                {STATUS_LABELS[assignment.status]}
+                              </button>
+                              <button
+                                className={styles.cellRemove}
+                                onClick={(e) => { e.stopPropagation(); handleDeleteAssignment(assignment); }}
+                                title="Remove assignment"
+                              >
+                                <Trash2 size={10} />
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div

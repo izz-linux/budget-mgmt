@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { incomeApi } from '../../api/income';
 import { periodsApi } from '../../api/periods';
+import { assignmentsApi } from '../../api/assignments';
 import { useBudgetStore } from '../../stores/budgetStore';
 import { IncomeForm } from './IncomeForm';
 import type { IncomeSource } from '../../types';
@@ -31,7 +32,10 @@ export function IncomeList() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => periodsApi.generate(dateRange.from, dateRange.to),
+    mutationFn: async () => {
+      await periodsApi.generate(dateRange.from, dateRange.to);
+      await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
   });
 

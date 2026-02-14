@@ -66,6 +66,7 @@ func New(db *pgxpool.Pool) http.Handler {
 		// Bill assignments
 		r.Get("/assignments", assignH.List)
 		r.Post("/assignments", assignH.Create)
+		r.Post("/assignments/auto-assign", assignH.AutoAssign)
 		r.Put("/assignments/{id}", assignH.Update)
 		r.Patch("/assignments/{id}/status", assignH.UpdateStatus)
 		r.Delete("/assignments/{id}", assignH.Delete)
