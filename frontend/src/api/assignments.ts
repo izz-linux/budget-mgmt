@@ -24,4 +24,7 @@ export const assignmentsApi = {
 
   delete: (id: number) =>
     api.delete(`/assignments/${id}`),
+
+  autoAssign: (from: string, to: string) =>
+    api.post<BillAssignment[]>('/assignments/auto-assign', { from, to }),
 };

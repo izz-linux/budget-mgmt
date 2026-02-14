@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { incomeApi } from '../../api/income';
 import { periodsApi } from '../../api/periods';
+import { assignmentsApi } from '../../api/assignments';
 import { useBudgetStore } from '../../stores/budgetStore';
 import type { IncomeSource } from '../../types';
 import styles from '../bills/BillForm.module.css'; // reuse bill form styles
@@ -27,15 +28,19 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
     anchor_date: (detail?.anchor_date as string) || '',
     semi_day1: ((detail?.days as number[]) || [1, 16])[0],
     semi_day2: ((detail?.days as number[]) || [1, 16])[1],
+    start_date: new Date().toISOString().split('T')[0],
   });
 
   const createMutation = useMutation({
     mutationFn: (data: Partial<IncomeSource>) => incomeApi.create(data),
     onSuccess: async (created) => {
       queryClient.invalidateQueries({ queryKey: ['income-sources'] });
-      // Auto-generate pay periods for the new income source
+      // Auto-generate pay periods from start_date to end of budget range
+      const from = form.start_date || dateRange.from;
+      const to = dateRange.to;
       try {
-        await periodsApi.generate(dateRange.from, dateRange.to, [created.id]);
+        await periodsApi.generate(from, to, [created.id]);
+        await assignmentsApi.autoAssign(from, to);
         queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
       } catch {
         // Period generation is best-effort; user can retry from budget grid
@@ -171,6 +176,17 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
                   onChange={(e) => set('semi_day2', e.target.value)}
                 />
               </div>
+            </div>
+          )}
+
+          {!isEditing && (
+            <div className={styles.field}>
+              <label>Start Date (generate periods from)</label>
+              <input
+                type="date"
+                value={form.start_date}
+                onChange={(e) => set('start_date', e.target.value)}
+              />
             </div>
           )}
 
