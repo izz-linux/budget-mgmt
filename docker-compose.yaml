@@ -29,6 +29,10 @@ services:
       DB_USER: budget
       DB_PASSWORD: budget_local_dev
       SERVER_PORT: "8080"
+      AUTH_USERNAME: ${AUTH_USERNAME:-}
+      AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
     ports:
       - "8080:8080"
     depends_on:
@@ -39,6 +43,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
     container_name: budget-ui
     ports:
       - "3000:80"

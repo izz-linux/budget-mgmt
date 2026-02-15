@@ -7,10 +7,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/izz-linux/budget-mgmt/backend/internal/auth"
+	"github.com/izz-linux/budget-mgmt/backend/internal/config"
 	"github.com/izz-linux/budget-mgmt/backend/internal/handlers"
 )
 
-func New(db *pgxpool.Pool) http.Handler {
+func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -26,10 +28,18 @@ func New(db *pgxpool.Pool) http.Handler {
 		MaxAge:           300,
 	}))
 
-	// Health check
+	// Health check (public)
 	r.Get("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// Auth routes (public)
+	authH := handlers.NewAuthHandler(cfg)
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		r.Post("/login", authH.Login)
+		r.Post("/logout", authH.Logout)
+		r.Get("/status", authH.Status)
 	})
 
 	// Handlers
@@ -43,6 +53,9 @@ func New(db *pgxpool.Pool) http.Handler {
 	dashboardH := handlers.NewDashboardHandler(db)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// Protect data routes with auth middleware
+		r.Use(auth.RequireAuth(cfg.JWTSecret, cfg.AuthEnabled()))
+
 		// Bills
 		r.Get("/bills", billH.List)
 		r.Post("/bills", billH.Create)

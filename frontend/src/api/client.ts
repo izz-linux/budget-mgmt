@@ -3,8 +3,14 @@ const BASE_URL = '/api/v1';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
+    credentials: 'include',
     ...options,
   });
+
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: { message: res.statusText } }));
