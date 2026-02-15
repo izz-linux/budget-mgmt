@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { DollarSign, Receipt, TrendingUp, AlertCircle } from 'lucide-react';
 import { gridApi } from '../../api/grid';
+import { ordinal } from '../../utils/ordinal';
 import styles from './Dashboard.module.css';
 
 export function Dashboard() {
@@ -102,7 +103,7 @@ export function Dashboard() {
                 <div key={bill.id} className={styles.upcomingItem}>
                   <span className={styles.upcomingName}>{bill.name}</span>
                   <span className={styles.upcomingDue}>
-                    {bill.due_day}th
+                    {ordinal(bill.due_day!)}
                     {bill.is_autopay && <span className={styles.autoTag}>Auto</span>}
                   </span>
                   <span className={styles.upcomingAmount}>

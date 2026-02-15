@@ -7,6 +7,7 @@ import { periodsApi } from '../../api/periods';
 import { useBudgetStore } from '../../stores/budgetStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { Bill, PayPeriod, BillAssignment } from '../../types';
+import { ordinal } from '../../utils/ordinal';
 import styles from './BudgetGrid.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -256,7 +257,7 @@ export function BudgetGrid() {
               <div key={bill.id} className={styles.mobileBillRow}>
                 <div className={styles.mobileBillName}>
                   <span>{bill.name}</span>
-                  {bill.due_day && <span className={styles.dueTag}>Due {bill.due_day}th</span>}
+                  {bill.due_day && <span className={styles.dueTag}>Due {ordinal(bill.due_day)}</span>}
                 </div>
                 <div className={styles.mobileBillRight}>
                   {assignment ? (
@@ -431,7 +432,7 @@ export function BudgetGrid() {
                     <div className={styles.billLabel}>
                       <span className={styles.billName}>{bill.name}</span>
                       <span className={styles.billMeta}>
-                        {bill.due_day && `${bill.due_day}th`}
+                        {bill.due_day && ordinal(bill.due_day)}
                         {bill.is_autopay && ' Auto'}
                       </span>
                     </div>
