@@ -9,3 +9,4 @@ data:
   DB_NAME: budgetapp
   DB_USER: budget
   SERVER_PORT: "8080"
+  AUTH_USERNAME: admin

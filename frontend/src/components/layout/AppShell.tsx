@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Grid3X3, Receipt, DollarSign, Upload, Lightbulb, Menu, X } from 'lucide-react';
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, Grid3X3, Receipt, DollarSign, Upload, Lightbulb, Menu, X, LogOut } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
+import { useAuthStore } from '../../stores/authStore';
 import styles from './AppShell.module.css';
 
 const navItems = [
@@ -15,6 +16,13 @@ const navItems = [
 
 export function AppShell() {
   const { sidebarOpen, toggleSidebar, isMobile, setIsMobile } = useUIStore();
+  const { authRequired, logout } = useAuthStore();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -41,6 +49,12 @@ export function AppShell() {
               <span>{label}</span>
             </NavLink>
           ))}
+          {authRequired && (
+            <button className={`${styles.navItem} ${styles.logoutBtn}`} onClick={handleLogout}>
+              <LogOut size={18} />
+              <span>Logout</span>
+            </button>
+          )}
         </nav>
       )}
 
@@ -73,6 +87,12 @@ export function AppShell() {
                 <span>{label}</span>
               </NavLink>
             ))}
+            {authRequired && (
+              <button className={`${styles.navItem} ${styles.logoutBtn}`} onClick={() => { toggleSidebar(); handleLogout(); }}>
+                <LogOut size={18} />
+                <span>Logout</span>
+              </button>
+            )}
           </nav>
         </>
       )}

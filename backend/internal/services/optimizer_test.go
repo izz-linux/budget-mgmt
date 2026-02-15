@@ -206,13 +206,49 @@ func TestMinBalance(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// hasBillInPeriod helper
+// ---------------------------------------------------------------------------
+
+func TestHasBillInPeriod(t *testing.T) {
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10},
+		{BillID: 2, PeriodID: 20},
+		{BillID: 1, PeriodID: 30},
+	}
+
+	t.Run("found", func(t *testing.T) {
+		if !hasBillInPeriod(assignments, 1, 10) {
+			t.Error("expected true for bill 1 in period 10")
+		}
+	})
+
+	t.Run("same bill different period", func(t *testing.T) {
+		if !hasBillInPeriod(assignments, 1, 30) {
+			t.Error("expected true for bill 1 in period 30")
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		if hasBillInPeriod(assignments, 2, 10) {
+			t.Error("expected false for bill 2 in period 10")
+		}
+	})
+
+	t.Run("empty slice", func(t *testing.T) {
+		if hasBillInPeriod(nil, 1, 10) {
+			t.Error("expected false for empty slice")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Optimize: empty / nil inputs
 // ---------------------------------------------------------------------------
 
 func TestOptimize_EmptyBills(t *testing.T) {
 	o := NewOptimizer()
 	periods := []OptPeriod{{ID: 1, PayDate: "2025-01-01", PayDay: 1, Income: 2000}}
-	result := o.Optimize([]OptBill{}, periods, map[int]int{})
+	result := o.Optimize([]OptBill{}, periods, nil)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -224,7 +260,7 @@ func TestOptimize_EmptyBills(t *testing.T) {
 func TestOptimize_EmptyPeriods(t *testing.T) {
 	o := NewOptimizer()
 	bills := []OptBill{{ID: 1, Name: "Rent", DueDay: 1, Amount: 1200}}
-	result := o.Optimize(bills, []OptPeriod{}, map[int]int{})
+	result := o.Optimize(bills, []OptPeriod{}, nil)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -235,7 +271,7 @@ func TestOptimize_EmptyPeriods(t *testing.T) {
 
 func TestOptimize_BothEmpty(t *testing.T) {
 	o := NewOptimizer()
-	result := o.Optimize([]OptBill{}, []OptPeriod{}, map[int]int{})
+	result := o.Optimize([]OptBill{}, []OptPeriod{}, nil)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -247,7 +283,7 @@ func TestOptimize_BothEmpty(t *testing.T) {
 func TestOptimize_NilBills(t *testing.T) {
 	o := NewOptimizer()
 	periods := []OptPeriod{{ID: 1, PayDate: "2025-01-01", PayDay: 1, Income: 2000}}
-	result := o.Optimize(nil, periods, map[int]int{})
+	result := o.Optimize(nil, periods, nil)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -259,7 +295,7 @@ func TestOptimize_NilBills(t *testing.T) {
 func TestOptimize_NilPeriods(t *testing.T) {
 	o := NewOptimizer()
 	bills := []OptBill{{ID: 1, Name: "Rent", DueDay: 1, Amount: 1200}}
-	result := o.Optimize(bills, nil, map[int]int{})
+	result := o.Optimize(bills, nil, nil)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -282,7 +318,7 @@ func TestOptimize_NoAssignments(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	result := o.Optimize(bills, periods, map[int]int{})
+	result := o.Optimize(bills, periods, nil)
 	if len(result.Suggestions) != 0 {
 		t.Errorf("expected 0 suggestions with no assignments, got %d", len(result.Suggestions))
 	}
@@ -307,7 +343,7 @@ func TestOptimize_BalancedPeriods_NoSuggestions(t *testing.T) {
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
 	// Each period has one $1000 bill => balance is 1000 each, difference < 50
-	assignments := map[int]int{1: 10, 2: 20}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 20}}
 	result := o.Optimize(bills, periods, assignments)
 	if len(result.Suggestions) != 0 {
 		t.Errorf("expected 0 suggestions for balanced periods, got %d", len(result.Suggestions))
@@ -334,7 +370,7 @@ func TestOptimize_DifferenceBelowThreshold(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	assignments := map[int]int{1: 10, 2: 20}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 20}}
 	// Period 10: 2000-1000=1000, Period 20: 2000-1020=980, diff=20 < 50
 	result := o.Optimize(bills, periods, assignments)
 	if len(result.Suggestions) != 0 {
@@ -348,10 +384,6 @@ func TestOptimize_DifferenceBelowThreshold(t *testing.T) {
 
 func TestOptimize_UnbalancedPeriods_ProducesSuggestions(t *testing.T) {
 	o := NewOptimizer()
-	// Use bills where only some can move to the later period (canPayFrom constraint).
-	// Bill 1 (DueDay 3) can only be paid from PayDay <= 3, so it stays on period 10.
-	// Bills 2,3 (DueDay 20,22) can be paid from period 20 (PayDay 15).
-	// This prevents oscillation since Rent can't move back from period 10.
 	bills := []OptBill{
 		{ID: 1, Name: "Rent", DueDay: 3, Amount: 1200},
 		{ID: 2, Name: "Electric", DueDay: 20, Amount: 150},
@@ -362,7 +394,9 @@ func TestOptimize_UnbalancedPeriods_ProducesSuggestions(t *testing.T) {
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
 	// All bills on period 10: balance 10 = 2000-1200-150-60 = 590, balance 20 = 2000
-	assignments := map[int]int{1: 10, 2: 10, 3: 10}
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}, {BillID: 3, PeriodID: 10},
+	}
 	result := o.Optimize(bills, periods, assignments)
 	if len(result.Suggestions) == 0 {
 		t.Fatal("expected suggestions for unbalanced periods, got 0")
@@ -393,8 +427,7 @@ func TestOptimize_SuggestionFields(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// Both bills on period 10: balance 10 = 2000-1500-200 = 300, balance 20 = 2000
-	assignments := map[int]int{1: 10, 2: 10}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}}
 	result := o.Optimize(bills, periods, assignments)
 	if len(result.Suggestions) == 0 {
 		t.Fatal("expected at least one suggestion")
@@ -415,7 +448,6 @@ func TestOptimize_SuggestionFields(t *testing.T) {
 	if s.Reason == "" {
 		t.Error("suggestion Reason should not be empty")
 	}
-	// The move should be from period 10 to period 20
 	if s.FromPeriod != "2025-01-01" {
 		t.Errorf("expected FromPeriod 2025-01-01, got %s", s.FromPeriod)
 	}
@@ -441,26 +473,21 @@ func TestOptimize_AllBillsOnOnePeriod(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// All bills on period 10: balance = 2000 - 800 - 200 - 100 - 80 - 50 = 770
-	// Period 20 balance = 2000
-	assignments := map[int]int{1: 10, 2: 10, 3: 10, 4: 10, 5: 10}
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}, {BillID: 3, PeriodID: 10},
+		{BillID: 4, PeriodID: 10}, {BillID: 5, PeriodID: 10},
+	}
 	result := o.Optimize(bills, periods, assignments)
 
 	if result.CurrentMinBalance != 770 {
 		t.Errorf("expected CurrentMinBalance 770, got %f", result.CurrentMinBalance)
 	}
-
 	if len(result.Suggestions) == 0 {
 		t.Fatal("expected suggestions when all bills on one period")
 	}
-
-	// The optimizer should move some bills to period 20, improving balance
 	if result.OptimizedMinBalance <= 770 {
 		t.Errorf("expected optimized balance > 770, got %f", result.OptimizedMinBalance)
 	}
-
-	// Only bills with DueDay >= 15 (PayDay of period 20) or DueDay == 0 can be moved
-	// Eligible: Phone (20), Water (25)
 	for _, s := range result.Suggestions {
 		if s.BillName != "Phone" && s.BillName != "Water" {
 			t.Errorf("only Phone and Water should be movable to period with PayDay 15, got %s", s.BillName)
@@ -474,7 +501,6 @@ func TestOptimize_AllBillsOnOnePeriod(t *testing.T) {
 
 func TestOptimize_CanPayFromBlocksMove(t *testing.T) {
 	o := NewOptimizer()
-	// Bill due on day 5 cannot be paid from a period with PayDay 15
 	bills := []OptBill{
 		{ID: 1, Name: "EarlyBill", DueDay: 5, Amount: 1500},
 	}
@@ -482,9 +508,7 @@ func TestOptimize_CanPayFromBlocksMove(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// Bill on period 10 (balance 500), period 20 (balance 2000). Diff > 50.
-	// But due day 5 < pay day 15, so can't move. No suggestions.
-	assignments := map[int]int{1: 10}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}}
 	result := o.Optimize(bills, periods, assignments)
 	if len(result.Suggestions) != 0 {
 		t.Errorf("expected 0 suggestions because canPayFrom blocks move, got %d", len(result.Suggestions))
@@ -505,10 +529,7 @@ func TestOptimize_DueDayZeroAlwaysMovable(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// Both on period 10: balance = 2000-500-1000 = 500, period 20 = 2000
-	// BigBill (due 5) can't move to period 20 (payDay 15 > dueDay 5)
-	// FlexBill (due 0) can move to period 20
-	assignments := map[int]int{1: 10, 2: 10}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}}
 	result := o.Optimize(bills, periods, assignments)
 	if len(result.Suggestions) == 0 {
 		t.Fatal("expected suggestions for DueDay 0 bill")
@@ -524,7 +545,6 @@ func TestOptimize_DueDayZeroAlwaysMovable(t *testing.T) {
 
 func TestOptimize_MultipleIterations(t *testing.T) {
 	o := NewOptimizer()
-	// Create a scenario where multiple bills need to be moved across multiple iterations
 	bills := []OptBill{
 		{ID: 1, Name: "Bill A", DueDay: 25, Amount: 500},
 		{ID: 2, Name: "Bill B", DueDay: 28, Amount: 400},
@@ -534,25 +554,17 @@ func TestOptimize_MultipleIterations(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// All on period 10: balance = 2000 - 500 - 400 - 300 = 800, period 20 = 2000
-	// All due days > 15, so all can be moved to period 20
-	// Iteration 1: moves Bill A (500, largest), period 10 = 1300, period 20 = 1500
-	// The difference is still 200 which is > 50, so...
-	// Iteration 2: moves Bill B (400), period 10 = 1700, period 20 = 1100
-	// Now period 20 is tighter. Might trigger another iteration.
-	assignments := map[int]int{1: 10, 2: 10, 3: 10}
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}, {BillID: 3, PeriodID: 10},
+	}
 	result := o.Optimize(bills, periods, assignments)
 
 	if len(result.Suggestions) < 1 {
 		t.Fatalf("expected at least 1 suggestion for multi-iteration case, got %d", len(result.Suggestions))
 	}
-
-	// The optimizer should produce an improvement
 	if result.Improvement <= 0 {
 		t.Errorf("expected positive improvement, got %f", result.Improvement)
 	}
-
-	// The optimized min balance should be better than the original 800
 	if result.OptimizedMinBalance <= 800 {
 		t.Errorf("expected OptimizedMinBalance > 800, got %f", result.OptimizedMinBalance)
 	}
@@ -576,20 +588,18 @@ func TestOptimize_ThreePeriodsMultipleIterations(t *testing.T) {
 		{ID: 20, PayDate: "2025-01-10", PayDay: 10, Income: 1500},
 		{ID: 30, PayDate: "2025-01-20", PayDay: 20, Income: 1500},
 	}
-	// All on period 10: 1500 - 1200 - 400 - 150 - 80 - 60 = -390
-	// Period 20 = 1500, Period 30 = 1500
-	assignments := map[int]int{1: 10, 2: 10, 3: 10, 4: 10, 5: 10}
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}, {BillID: 3, PeriodID: 10},
+		{BillID: 4, PeriodID: 10}, {BillID: 5, PeriodID: 10},
+	}
 	result := o.Optimize(bills, periods, assignments)
 
 	if result.CurrentMinBalance != -390 {
 		t.Errorf("expected CurrentMinBalance -390, got %f", result.CurrentMinBalance)
 	}
-
 	if len(result.Suggestions) == 0 {
 		t.Fatal("expected suggestions for severely unbalanced periods")
 	}
-
-	// After optimization, min balance should be significantly better
 	if result.OptimizedMinBalance <= result.CurrentMinBalance {
 		t.Errorf("expected optimization to improve min balance")
 	}
@@ -607,9 +617,8 @@ func TestOptimize_SinglePeriod(t *testing.T) {
 	periods := []OptPeriod{
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 	}
-	assignments := map[int]int{1: 10}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}}
 	result := o.Optimize(bills, periods, assignments)
-	// With one period, tight == surplus => no suggestions
 	if len(result.Suggestions) != 0 {
 		t.Errorf("expected 0 suggestions with single period, got %d", len(result.Suggestions))
 	}
@@ -631,17 +640,17 @@ func TestOptimize_AssignmentForNonexistentBill(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// Bill ID 999 doesn't exist; it should be silently ignored
-	assignments := map[int]int{1: 10, 999: 20}
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 999, PeriodID: 20},
+	}
 	result := o.Optimize(bills, periods, assignments)
-	// Should not panic and should return a valid result
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Optimize: does not mutate original assignments map
+// Optimize: does not mutate original assignments slice
 // ---------------------------------------------------------------------------
 
 func TestOptimize_DoesNotMutateOriginalAssignments(t *testing.T) {
@@ -654,17 +663,15 @@ func TestOptimize_DoesNotMutateOriginalAssignments(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	assignments := map[int]int{1: 10, 2: 10}
-	original := make(map[int]int)
-	for k, v := range assignments {
-		original[k] = v
-	}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}}
+	original := make([]OptAssignment, len(assignments))
+	copy(original, assignments)
 
 	o.Optimize(bills, periods, assignments)
 
-	for k, v := range original {
-		if assignments[k] != v {
-			t.Errorf("original assignments mutated: key %d changed from %d to %d", k, v, assignments[k])
+	for i, a := range original {
+		if assignments[i] != a {
+			t.Errorf("original assignments mutated at index %d: was %v, now %v", i, a, assignments[i])
 		}
 	}
 }
@@ -677,7 +684,7 @@ func TestOptimize_SuggestionsNeverNil(t *testing.T) {
 	o := NewOptimizer()
 
 	t.Run("empty inputs", func(t *testing.T) {
-		result := o.Optimize([]OptBill{}, []OptPeriod{}, map[int]int{})
+		result := o.Optimize([]OptBill{}, []OptPeriod{}, nil)
 		if result.Suggestions == nil {
 			t.Error("Suggestions should be empty slice, not nil")
 		}
@@ -689,7 +696,7 @@ func TestOptimize_SuggestionsNeverNil(t *testing.T) {
 			{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 			{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 		}
-		result := o.Optimize(bills, periods, map[int]int{1: 10})
+		result := o.Optimize(bills, periods, []OptAssignment{{BillID: 1, PeriodID: 10}})
 		if result.Suggestions == nil {
 			t.Error("Suggestions should be empty slice, not nil")
 		}
@@ -710,7 +717,7 @@ func TestOptimize_ImprovementCalculation(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	assignments := map[int]int{1: 10, 2: 10}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}}
 	result := o.Optimize(bills, periods, assignments)
 
 	expectedImprovement := result.OptimizedMinBalance - result.CurrentMinBalance
@@ -729,19 +736,15 @@ func TestOptimize_PeriodsAreSortedByPayDate(t *testing.T) {
 	bills := []OptBill{
 		{ID: 1, Name: "Bill", DueDay: 25, Amount: 1500},
 	}
-	// Periods given in reverse order
 	periods := []OptPeriod{
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 	}
-	assignments := map[int]int{1: 10}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}}
 	result := o.Optimize(bills, periods, assignments)
-	// Should produce same result regardless of input order
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	// Period 10 has balance 500, period 20 has balance 2000
-	// Bill can move (DueDay 25 >= PayDay 15)
 	if len(result.Suggestions) == 0 {
 		t.Error("expected suggestions even with reversed period order")
 	}
@@ -753,33 +756,26 @@ func TestOptimize_PeriodsAreSortedByPayDate(t *testing.T) {
 
 func TestOptimize_ConvergesWithManyBills(t *testing.T) {
 	o := NewOptimizer()
-	// Create many bills to test convergence within 100 iterations
 	var bills []OptBill
+	var assignments []OptAssignment
 	for i := 1; i <= 20; i++ {
 		bills = append(bills, OptBill{
 			ID:     i,
 			Name:   "Bill",
-			DueDay: 0, // always movable
+			DueDay: 0,
 			Amount: 50,
 		})
+		assignments = append(assignments, OptAssignment{BillID: i, PeriodID: 10})
 	}
 	periods := []OptPeriod{
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// All 20 bills ($50 each = $1000 total) on period 10
-	assignments := make(map[int]int)
-	for i := 1; i <= 20; i++ {
-		assignments[i] = 10
-	}
-	// Period 10 balance = 2000 - 1000 = 1000, Period 20 = 2000
 	result := o.Optimize(bills, periods, assignments)
 
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	// Should converge to roughly equal balances (1500 each)
-	// 10 bills moved to period 20 => each period has $500 of bills, balance = 1500
 	if result.OptimizedMinBalance < 1400 {
 		t.Errorf("expected optimized balance near 1500, got %f", result.OptimizedMinBalance)
 	}
@@ -800,14 +796,14 @@ func TestOptimize_PicksLargestBillFirst(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// All on period 10: 2000-50-200-500 = 1250, period 20 = 2000
-	assignments := map[int]int{1: 10, 2: 10, 3: 10}
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}, {BillID: 3, PeriodID: 10},
+	}
 	result := o.Optimize(bills, periods, assignments)
 
 	if len(result.Suggestions) == 0 {
 		t.Fatal("expected at least one suggestion")
 	}
-	// The first suggestion should be the largest bill
 	if result.Suggestions[0].BillName != "Large" {
 		t.Errorf("expected first suggestion to move Large bill, got %s", result.Suggestions[0].BillName)
 	}
@@ -822,7 +818,6 @@ func TestOptimize_PicksLargestBillFirst(t *testing.T) {
 
 func TestOptimize_NoValidMovesAllBlocked(t *testing.T) {
 	o := NewOptimizer()
-	// All bills have early due days that can't be paid from period 20 (PayDay 15)
 	bills := []OptBill{
 		{ID: 1, Name: "A", DueDay: 3, Amount: 500},
 		{ID: 2, Name: "B", DueDay: 5, Amount: 500},
@@ -832,9 +827,9 @@ func TestOptimize_NoValidMovesAllBlocked(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	assignments := map[int]int{1: 10, 2: 10, 3: 10}
-	// Period 10: 2000-1500=500, Period 20: 2000, difference 1500 >> 50
-	// But no bill can move because all due days < 15
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10}, {BillID: 3, PeriodID: 10},
+	}
 	result := o.Optimize(bills, periods, assignments)
 	if len(result.Suggestions) != 0 {
 		t.Errorf("expected 0 suggestions when all moves blocked by canPayFrom, got %d", len(result.Suggestions))
@@ -845,10 +840,10 @@ func TestOptimize_NoValidMovesAllBlocked(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Optimize: empty assignments map
+// Optimize: empty assignments
 // ---------------------------------------------------------------------------
 
-func TestOptimize_EmptyAssignmentsMap(t *testing.T) {
+func TestOptimize_EmptyAssignmentsSlice(t *testing.T) {
 	o := NewOptimizer()
 	bills := []OptBill{
 		{ID: 1, Name: "Rent", DueDay: 5, Amount: 1200},
@@ -857,8 +852,7 @@ func TestOptimize_EmptyAssignmentsMap(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	result := o.Optimize(bills, periods, map[int]int{})
-	// No bills assigned, so both periods at full income, perfectly balanced
+	result := o.Optimize(bills, periods, []OptAssignment{})
 	if len(result.Suggestions) != 0 {
 		t.Errorf("expected 0 suggestions with empty assignments, got %d", len(result.Suggestions))
 	}
@@ -880,24 +874,12 @@ func TestOptimize_DoesNotOscillate(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// Period 10: 200, Period 20: 2000
-	// Moving Bill to period 20: Period 10: 2000, Period 20: 200
-	// Then it would want to move back. The optimizer should stop after 1 move
-	// because after the move the tight/surplus just swap.
-	assignments := map[int]int{1: 10}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}}
 	result := o.Optimize(bills, periods, assignments)
 
-	// The number of suggestions should be limited - the optimizer should
-	// eventually break when there's no further improvement available
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	// Verify it terminates (it does because the loop limit is 100)
-	// After first move: period 10 = 2000, period 20 = 200
-	// Then it would try to move back to period 10 but the bill is on period 20 now
-	// and period 20 is tight. bestBillID search looks at tightID period,
-	// so it would find the bill and try to move it back.
-	// This tests that the iteration limit prevents infinite oscillation.
 	if len(result.Suggestions) > 100 {
 		t.Errorf("too many suggestions, possible infinite loop: %d", len(result.Suggestions))
 	}
@@ -921,18 +903,16 @@ func TestOptimize_RealisticBiweeklyScenario(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2500},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2500},
 	}
-	// Mortgage and Car Payment on period 10: 2500-1500-450=550
-	// Electric, Internet, Phone, Insurance on period 20: 2500-120-80-60-200=2040
-	assignments := map[int]int{1: 10, 2: 10, 3: 20, 4: 20, 5: 20, 6: 20}
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10},
+		{BillID: 3, PeriodID: 20}, {BillID: 4, PeriodID: 20},
+		{BillID: 5, PeriodID: 20}, {BillID: 6, PeriodID: 20},
+	}
 	result := o.Optimize(bills, periods, assignments)
 
 	if result.CurrentMinBalance != 550 {
 		t.Errorf("expected CurrentMinBalance 550, got %f", result.CurrentMinBalance)
 	}
-
-	// Car Payment (due 15) can be paid from period 20 (PayDay 15, 15 <= 15)
-	// Moving it: period 10 = 2500-1500=1000, period 20 = 2500-450-120-80-60-200=1590
-	// That's a significant improvement
 	if result.Improvement <= 0 {
 		t.Errorf("expected improvement in realistic scenario, got %f", result.Improvement)
 	}
@@ -954,18 +934,15 @@ func TestOptimize_ManyPeriods(t *testing.T) {
 		{ID: 3, PayDate: "2025-01-15", PayDay: 15, Income: 1000},
 		{ID: 4, PayDate: "2025-01-22", PayDay: 22, Income: 1000},
 	}
-	// All on period 1: 1000-2000-500=-1500, others at 1000 each
-	assignments := map[int]int{1: 1, 2: 1}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 1}, {BillID: 2, PeriodID: 1}}
 	result := o.Optimize(bills, periods, assignments)
 
 	if result.CurrentMinBalance != -1500 {
 		t.Errorf("expected CurrentMinBalance -1500, got %f", result.CurrentMinBalance)
 	}
-
 	if len(result.Suggestions) == 0 {
 		t.Fatal("expected suggestions for heavily unbalanced 4-period scenario")
 	}
-
 	if result.OptimizedMinBalance <= result.CurrentMinBalance {
 		t.Error("expected optimization to improve min balance")
 	}
@@ -985,8 +962,7 @@ func TestOptimize_ZeroImprovementWhenNoSuggestions(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
 	}
-	// Perfectly balanced: each period has balance 1000
-	assignments := map[int]int{1: 10, 2: 20}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 20}}
 	result := o.Optimize(bills, periods, assignments)
 
 	if len(result.Suggestions) != 0 {
@@ -1014,19 +990,12 @@ func TestOptimize_SingleBillMovable(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 1000},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 1000},
 	}
-	// Period 10: 200, Period 20: 1000, diff = 800 > 50
-	// Bill due 20 >= PayDay 15, so it can move
-	assignments := map[int]int{1: 10}
+	assignments := []OptAssignment{{BillID: 1, PeriodID: 10}}
 	result := o.Optimize(bills, periods, assignments)
 
 	if result.CurrentMinBalance != 200 {
 		t.Errorf("expected CurrentMinBalance 200, got %f", result.CurrentMinBalance)
 	}
-
-	// After moving: Period 10: 1000, Period 20: 200
-	// That doesn't improve min balance (still 200). But the optimizer tries it
-	// because it's just looking at moving from tight to surplus.
-	// The final improvement should be 0 because min doesn't change.
 	if result.OptimizedMinBalance != 200 {
 		t.Errorf("expected OptimizedMinBalance 200 (moving single bill just swaps), got %f",
 			result.OptimizedMinBalance)
@@ -1049,24 +1018,101 @@ func TestOptimize_EqualIncomePeriods(t *testing.T) {
 		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 1500},
 		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 1500},
 	}
-	// All 4 bills on period 10: 1500 - 1200 = 300, period 20 = 1500
-	assignments := map[int]int{1: 10, 2: 10, 3: 10, 4: 10}
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, {BillID: 2, PeriodID: 10},
+		{BillID: 3, PeriodID: 10}, {BillID: 4, PeriodID: 10},
+	}
 	result := o.Optimize(bills, periods, assignments)
 
 	if result.CurrentMinBalance != 300 {
 		t.Errorf("expected CurrentMinBalance 300, got %f", result.CurrentMinBalance)
 	}
-
-	// Optimal: 2 bills each side => each period: 1500 - 600 = 900
 	if result.OptimizedMinBalance != 900 {
 		t.Errorf("expected OptimizedMinBalance 900, got %f", result.OptimizedMinBalance)
 	}
-
 	if len(result.Suggestions) != 2 {
 		t.Errorf("expected 2 suggestions (move 2 of 4 bills), got %d", len(result.Suggestions))
 	}
-
 	if result.Improvement != 600 {
 		t.Errorf("expected improvement of 600, got %f", result.Improvement)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Optimize: multi-month scenario (the bug that map[int]int caused)
+// ---------------------------------------------------------------------------
+
+func TestOptimize_MultiMonthNoDuplication(t *testing.T) {
+	o := NewOptimizer()
+	// A bill assigned to multiple periods (once per month) should all be tracked
+	bills := []OptBill{
+		{ID: 1, Name: "Rent", DueDay: 1, Amount: 1200},
+		{ID: 2, Name: "Electric", DueDay: 20, Amount: 150},
+	}
+	periods := []OptPeriod{
+		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
+		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
+		{ID: 30, PayDate: "2025-02-01", PayDay: 1, Income: 2000},
+		{ID: 40, PayDate: "2025-02-15", PayDay: 15, Income: 2000},
+	}
+	// Both bills assigned each month
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10}, // Rent Jan
+		{BillID: 2, PeriodID: 20}, // Electric Jan
+		{BillID: 1, PeriodID: 30}, // Rent Feb
+		{BillID: 2, PeriodID: 40}, // Electric Feb
+	}
+	result := o.Optimize(bills, periods, assignments)
+
+	// All 4 assignments should be accounted for in balances:
+	// P10: 2000-1200=800, P20: 2000-150=1850, P30: 2000-1200=800, P40: 2000-150=1850
+	// Min = 800
+	if result.CurrentMinBalance != 800 {
+		t.Errorf("expected CurrentMinBalance 800 (all assignments counted), got %f", result.CurrentMinBalance)
+	}
+
+	// Suggestions should never move a bill to a period that already has it
+	for _, s := range result.Suggestions {
+		if s.BillName == "Rent" && s.ToPeriod == "2025-01-01" {
+			t.Error("should not suggest moving Rent to period that already has it")
+		}
+		if s.BillName == "Rent" && s.ToPeriod == "2025-02-01" {
+			t.Error("should not suggest moving Rent to period that already has it")
+		}
+		if s.BillName == "Electric" && s.ToPeriod == "2025-01-15" {
+			t.Error("should not suggest moving Electric to period that already has it")
+		}
+		if s.BillName == "Electric" && s.ToPeriod == "2025-02-15" {
+			t.Error("should not suggest moving Electric to period that already has it")
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Optimize: manually moved bill should not produce duplicate suggestions
+// ---------------------------------------------------------------------------
+
+func TestOptimize_ManuallyMovedBill(t *testing.T) {
+	o := NewOptimizer()
+	bills := []OptBill{
+		{ID: 1, Name: "Rent", DueDay: 5, Amount: 1200},
+		{ID: 2, Name: "Electric", DueDay: 20, Amount: 150},
+	}
+	periods := []OptPeriod{
+		{ID: 10, PayDate: "2025-01-01", PayDay: 1, Income: 2000},
+		{ID: 20, PayDate: "2025-01-15", PayDay: 15, Income: 2000},
+	}
+	// Electric already on period 20 (user manually moved it there)
+	assignments := []OptAssignment{
+		{BillID: 1, PeriodID: 10},
+		{BillID: 2, PeriodID: 20},
+	}
+	// P10: 2000-1200=800, P20: 2000-150=1850, diff=1050 > 50
+	// But Rent (dueDay 5) can't move to period 20 (payDay 15 > 5)
+	// And Electric is already on the surplus period
+	result := o.Optimize(bills, periods, assignments)
+
+	if len(result.Suggestions) != 0 {
+		t.Errorf("expected 0 suggestions for manually moved bill scenario, got %d", len(result.Suggestions))
 	}
 }

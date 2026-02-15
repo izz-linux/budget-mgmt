@@ -46,7 +46,9 @@ func NewOptimizer() *Optimizer {
 }
 
 // Optimize takes bills and periods and suggests reassignments to maximize minimum balance.
-func (o *Optimizer) Optimize(bills []OptBill, periods []OptPeriod, currentAssignments map[int]int) *OptimizationResult {
+// currentAssignments is a slice of all bill-to-period assignments (a bill may appear multiple
+// times across different periods, e.g. once per month).
+func (o *Optimizer) Optimize(bills []OptBill, periods []OptPeriod, currentAssignments []OptAssignment) *OptimizationResult {
 	if len(bills) == 0 || len(periods) == 0 {
 		return &OptimizationResult{Suggestions: []Suggestion{}}
 	}
@@ -55,39 +57,17 @@ func (o *Optimizer) Optimize(bills []OptBill, periods []OptPeriod, currentAssign
 	sort.Slice(periods, func(i, j int) bool { return periods[i].PayDate < periods[j].PayDate })
 
 	// Calculate current balances
-	periodBalances := make(map[int]float64)
-	for i := range periods {
-		periodBalances[periods[i].ID] = periods[i].Income
-	}
-	for billID, periodID := range currentAssignments {
-		bill := findBill(bills, billID)
-		if bill != nil {
-			periodBalances[periodID] -= bill.Amount
-		}
-	}
+	currentMin := calcMinBalance(bills, periods, currentAssignments)
 
-	currentMin := minBalance(periodBalances)
-
-	// Try to improve by moving bills from tight periods to surplus periods
-	optimized := make(map[int]int)
-	for k, v := range currentAssignments {
-		optimized[k] = v
-	}
+	// Working copy of assignments
+	optimized := make([]OptAssignment, len(currentAssignments))
+	copy(optimized, currentAssignments)
 
 	var suggestions []Suggestion
 
 	for iterations := 0; iterations < 100; iterations++ {
 		// Recalculate balances
-		optBalances := make(map[int]float64)
-		for i := range periods {
-			optBalances[periods[i].ID] = periods[i].Income
-		}
-		for billID, periodID := range optimized {
-			bill := findBill(bills, billID)
-			if bill != nil {
-				optBalances[periodID] -= bill.Amount
-			}
-		}
+		optBalances := calcBalances(bills, periods, optimized)
 
 		// Find tightest and most surplus periods
 		tightID, surplusID := 0, 0
@@ -108,39 +88,42 @@ func (o *Optimizer) Optimize(bills []OptBill, periods []OptPeriod, currentAssign
 			break // Already balanced enough
 		}
 
-		// Find a bill currently assigned to tight period that can move to surplus
+		// Find the best assignment in the tight period that can move to surplus
 		bestImprovement := 0.0
-		bestBillID := 0
-		for billID, periodID := range optimized {
-			if periodID != tightID {
+		bestIdx := -1
+		surplusPeriod := findPeriod(periods, surplusID)
+		if surplusPeriod == nil {
+			break
+		}
+		for i, a := range optimized {
+			if a.PeriodID != tightID {
 				continue
 			}
-			bill := findBill(bills, billID)
+			bill := findBill(bills, a.BillID)
 			if bill == nil {
 				continue
 			}
-			// Can this bill be paid from the surplus period? (pay date before due)
-			surplusPeriod := findPeriod(periods, surplusID)
-			if surplusPeriod == nil {
+			if !canPayFrom(surplusPeriod.PayDay, bill.DueDay) {
 				continue
 			}
-			if canPayFrom(surplusPeriod.PayDay, bill.DueDay) {
-				improvement := bill.Amount
-				if improvement > bestImprovement {
-					bestImprovement = improvement
-					bestBillID = billID
-				}
+			// Don't move if the bill is already assigned to the target period
+			if hasBillInPeriod(optimized, a.BillID, surplusID) {
+				continue
+			}
+			if bill.Amount > bestImprovement {
+				bestImprovement = bill.Amount
+				bestIdx = i
 			}
 		}
 
-		if bestBillID == 0 {
+		if bestIdx < 0 {
 			break // No valid moves
 		}
 
 		// Apply the move
-		fromPeriod := findPeriod(periods, optimized[bestBillID])
-		toPeriod := findPeriod(periods, surplusID)
-		bill := findBill(bills, bestBillID)
+		fromPeriod := findPeriod(periods, optimized[bestIdx].PeriodID)
+		toPeriod := surplusPeriod
+		bill := findBill(bills, optimized[bestIdx].BillID)
 
 		suggestions = append(suggestions, Suggestion{
 			BillName:   bill.Name,
@@ -150,21 +133,11 @@ func (o *Optimizer) Optimize(bills []OptBill, periods []OptPeriod, currentAssign
 			Reason:     "Rebalance: move from overloaded to surplus period",
 		})
 
-		optimized[bestBillID] = surplusID
+		optimized[bestIdx].PeriodID = surplusID
 	}
 
 	// Calculate optimized minimum balance
-	optBalances := make(map[int]float64)
-	for i := range periods {
-		optBalances[periods[i].ID] = periods[i].Income
-	}
-	for billID, periodID := range optimized {
-		bill := findBill(bills, billID)
-		if bill != nil {
-			optBalances[periodID] -= bill.Amount
-		}
-	}
-	optimizedMin := minBalance(optBalances)
+	optimizedMin := calcMinBalance(bills, periods, optimized)
 
 	if suggestions == nil {
 		suggestions = []Suggestion{}
@@ -176,6 +149,33 @@ func (o *Optimizer) Optimize(bills []OptBill, periods []OptPeriod, currentAssign
 		OptimizedMinBalance: optimizedMin,
 		Improvement:         optimizedMin - currentMin,
 	}
+}
+
+func calcBalances(bills []OptBill, periods []OptPeriod, assignments []OptAssignment) map[int]float64 {
+	balances := make(map[int]float64)
+	for i := range periods {
+		balances[periods[i].ID] = periods[i].Income
+	}
+	for _, a := range assignments {
+		bill := findBill(bills, a.BillID)
+		if bill != nil {
+			balances[a.PeriodID] -= bill.Amount
+		}
+	}
+	return balances
+}
+
+func calcMinBalance(bills []OptBill, periods []OptPeriod, assignments []OptAssignment) float64 {
+	return minBalance(calcBalances(bills, periods, assignments))
+}
+
+func hasBillInPeriod(assignments []OptAssignment, billID, periodID int) bool {
+	for _, a := range assignments {
+		if a.BillID == billID && a.PeriodID == periodID {
+			return true
+		}
+	}
+	return false
 }
 
 func findBill(bills []OptBill, id int) *OptBill {

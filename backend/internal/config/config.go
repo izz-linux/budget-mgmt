@@ -14,6 +14,15 @@ type Config struct {
 	DBUser     string
 	DBPassword string
 	DBSSLMode  string
+
+	AuthUsername        string
+	AuthPasswordHash   string
+	JWTSecret          string
+	TurnstileSecretKey string
+}
+
+func (c *Config) AuthEnabled() bool {
+	return c.AuthUsername != "" && c.AuthPasswordHash != "" && c.JWTSecret != ""
 }
 
 func Load() *Config {
@@ -25,6 +34,11 @@ func Load() *Config {
 		DBUser:     getEnv("DB_USER", "budget"),
 		DBPassword: getEnv("DB_PASSWORD", "budget_local_dev"),
 		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
+
+		AuthUsername:        getEnv("AUTH_USERNAME", ""),
+		AuthPasswordHash:   getEnv("AUTH_PASSWORD_HASH", ""),
+		JWTSecret:          getEnv("JWT_SECRET", ""),
+		TurnstileSecretKey: getEnv("TURNSTILE_SECRET_KEY", ""),
 	}
 }
 

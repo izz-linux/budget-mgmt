@@ -32,7 +32,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := router.New(pool)
+	if cfg.AuthEnabled() {
+		slog.Info("authentication enabled", "username", cfg.AuthUsername)
+	} else {
+		slog.Warn("authentication disabled – set AUTH_USERNAME, AUTH_PASSWORD_HASH, and JWT_SECRET to enable")
+	}
+
+	handler := router.New(pool, cfg)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.ServerPort,

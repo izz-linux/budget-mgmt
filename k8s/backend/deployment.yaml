@@ -28,6 +28,21 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: DB_PASSWORD
+            - name: AUTH_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: AUTH_PASSWORD_HASH
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: JWT_SECRET
+            - name: TURNSTILE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: TURNSTILE_SECRET_KEY
           resources:
             requests:
               memory: "64Mi"

@@ -92,13 +92,13 @@ func (h *OptimizerHandler) Suggest(w http.ResponseWriter, r *http.Request) {
 	}
 	defer assignRows.Close()
 
-	currentAssignments := make(map[int]int)
+	var currentAssignments []services.OptAssignment
 	for assignRows.Next() {
-		var billID, periodID int
-		if err := assignRows.Scan(&billID, &periodID); err != nil {
+		var a services.OptAssignment
+		if err := assignRows.Scan(&a.BillID, &a.PeriodID); err != nil {
 			continue
 		}
-		currentAssignments[billID] = periodID
+		currentAssignments = append(currentAssignments, a)
 	}
 
 	result := h.optimizer.Optimize(bills, periods, currentAssignments)
