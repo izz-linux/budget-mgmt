@@ -1266,6 +1266,129 @@ func TestGenerateWeekly_FullYear(t *testing.T) {
 // Semi-monthly: full year with 1st and 16th
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// One-time schedule tests
+// ---------------------------------------------------------------------------
+
+func TestGenerateOneTime_InRange(t *testing.T) {
+	gen := NewPeriodGenerator()
+	source := makeSource(t, "one_time", models.OneTimeSchedule{Date: "2025-03-15"})
+
+	from := date(2025, time.January, 1)
+	to := date(2025, time.December, 31)
+
+	dates, err := gen.Generate(source, from, to)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []time.Time{date(2025, time.March, 15)}
+	assertDates(t, dates, expected)
+}
+
+func TestGenerateOneTime_ExactMatch(t *testing.T) {
+	gen := NewPeriodGenerator()
+	source := makeSource(t, "one_time", models.OneTimeSchedule{Date: "2025-06-01"})
+
+	d := date(2025, time.June, 1)
+	dates, err := gen.Generate(source, d, d)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []time.Time{d}
+	assertDates(t, dates, expected)
+}
+
+func TestGenerateOneTime_OutOfRange(t *testing.T) {
+	gen := NewPeriodGenerator()
+	source := makeSource(t, "one_time", models.OneTimeSchedule{Date: "2025-06-15"})
+
+	from := date(2025, time.January, 1)
+	to := date(2025, time.March, 31)
+
+	dates, err := gen.Generate(source, from, to)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(dates) != 0 {
+		t.Errorf("expected 0 dates when out of range, got %d: %v", len(dates), dates)
+	}
+}
+
+func TestGenerateOneTime_BeforeRange(t *testing.T) {
+	gen := NewPeriodGenerator()
+	source := makeSource(t, "one_time", models.OneTimeSchedule{Date: "2024-12-31"})
+
+	from := date(2025, time.January, 1)
+	to := date(2025, time.December, 31)
+
+	dates, err := gen.Generate(source, from, to)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(dates) != 0 {
+		t.Errorf("expected 0 dates when before range, got %d", len(dates))
+	}
+}
+
+func TestGenerateOneTime_InvalidJSON(t *testing.T) {
+	gen := NewPeriodGenerator()
+	source := models.IncomeSource{
+		PaySchedule:    "one_time",
+		ScheduleDetail: json.RawMessage(`{bad json`),
+	}
+
+	_, err := gen.Generate(source, date(2025, time.January, 1), date(2025, time.December, 31))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+}
+
+func TestGenerateOneTime_InvalidDate(t *testing.T) {
+	gen := NewPeriodGenerator()
+	source := makeSource(t, "one_time", models.OneTimeSchedule{Date: "not-a-date"})
+
+	_, err := gen.Generate(source, date(2025, time.January, 1), date(2025, time.December, 31))
+	if err == nil {
+		t.Fatal("expected error for invalid date, got nil")
+	}
+}
+
+func TestGenerateOneTime_OnFromBoundary(t *testing.T) {
+	gen := NewPeriodGenerator()
+	source := makeSource(t, "one_time", models.OneTimeSchedule{Date: "2025-01-01"})
+
+	from := date(2025, time.January, 1)
+	to := date(2025, time.December, 31)
+
+	dates, err := gen.Generate(source, from, to)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []time.Time{date(2025, time.January, 1)}
+	assertDates(t, dates, expected)
+}
+
+func TestGenerateOneTime_OnToBoundary(t *testing.T) {
+	gen := NewPeriodGenerator()
+	source := makeSource(t, "one_time", models.OneTimeSchedule{Date: "2025-12-31"})
+
+	from := date(2025, time.January, 1)
+	to := date(2025, time.December, 31)
+
+	dates, err := gen.Generate(source, from, to)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []time.Time{date(2025, time.December, 31)}
+	assertDates(t, dates, expected)
+}
+
 func TestGenerateSemiMonthly_FullYear(t *testing.T) {
 	gen := NewPeriodGenerator()
 	source := makeSource(t, "semimonthly", models.SemiMonthlySchedule{Days: []int{1, 16}})

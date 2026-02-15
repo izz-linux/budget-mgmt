@@ -22,6 +22,8 @@ func (g *PeriodGenerator) Generate(source models.IncomeSource, from, to time.Tim
 		return g.generateBiweekly(source.ScheduleDetail, from, to)
 	case "semimonthly":
 		return g.generateSemiMonthly(source.ScheduleDetail, from, to)
+	case "one_time":
+		return g.generateOneTime(source.ScheduleDetail, from, to)
 	default:
 		return nil, fmt.Errorf("unknown pay schedule: %s", source.PaySchedule)
 	}
@@ -120,4 +122,22 @@ func (g *PeriodGenerator) generateSemiMonthly(detail json.RawMessage, from, to t
 	}
 
 	return dates, nil
+}
+
+func (g *PeriodGenerator) generateOneTime(detail json.RawMessage, from, to time.Time) ([]time.Time, error) {
+	var schedule models.OneTimeSchedule
+	if err := json.Unmarshal(detail, &schedule); err != nil {
+		return nil, fmt.Errorf("parsing one-time schedule: %w", err)
+	}
+
+	date, err := time.Parse("2006-01-02", schedule.Date)
+	if err != nil {
+		return nil, fmt.Errorf("parsing one-time date: %w", err)
+	}
+
+	if !date.Before(from) && !date.After(to) {
+		return []time.Time{date}, nil
+	}
+
+	return nil, nil
 }

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Calendar, RefreshCw, Trash2 } from 'lucide-react';
 import { gridApi } from '../../api/grid';
@@ -7,6 +7,7 @@ import { periodsApi } from '../../api/periods';
 import { useBudgetStore } from '../../stores/budgetStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { Bill, PayPeriod, BillAssignment } from '../../types';
+import { ordinal } from '../../utils/ordinal';
 import styles from './BudgetGrid.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -79,6 +80,18 @@ export function BudgetGrid() {
   const bills = data?.bills || [];
   const periods = data?.periods || [];
   const assignments = data?.assignments || {};
+
+  // Auto-assign bills with due dates whenever grid loads with periods
+  const autoAssignRanRef = useRef('');
+  const rangeKey = useMemo(() => `${dateRange.from}-${dateRange.to}`, [dateRange.from, dateRange.to]);
+  useEffect(() => {
+    if (periods.length > 0 && autoAssignRanRef.current !== rangeKey) {
+      autoAssignRanRef.current = rangeKey;
+      assignmentsApi.autoAssign(dateRange.from, dateRange.to).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      }).catch(() => { /* best-effort */ });
+    }
+  }, [periods.length, rangeKey, dateRange.from, dateRange.to, queryClient]);
 
   const shiftRange = useCallback((months: number) => {
     const from = new Date(dateRange.from);
@@ -244,7 +257,7 @@ export function BudgetGrid() {
               <div key={bill.id} className={styles.mobileBillRow}>
                 <div className={styles.mobileBillName}>
                   <span>{bill.name}</span>
-                  {bill.due_day && <span className={styles.dueTag}>Due {bill.due_day}th</span>}
+                  {bill.due_day && <span className={styles.dueTag}>Due {ordinal(bill.due_day)}</span>}
                 </div>
                 <div className={styles.mobileBillRight}>
                   {assignment ? (
@@ -419,7 +432,7 @@ export function BudgetGrid() {
                     <div className={styles.billLabel}>
                       <span className={styles.billName}>{bill.name}</span>
                       <span className={styles.billMeta}>
-                        {bill.due_day && `${bill.due_day}th`}
+                        {bill.due_day && ordinal(bill.due_day)}
                         {bill.is_autopay && ' Auto'}
                       </span>
                     </div>

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { billsApi } from '../../api/bills';
+import { assignmentsApi } from '../../api/assignments';
+import { useBudgetStore } from '../../stores/budgetStore';
 import type { Bill } from '../../types';
 import styles from './BillForm.module.css';
 
@@ -12,6 +14,7 @@ interface BillFormProps {
 
 export function BillForm({ bill, onClose }: BillFormProps) {
   const queryClient = useQueryClient();
+  const { dateRange } = useBudgetStore();
   const isEditing = !!bill;
 
   const [form, setForm] = useState({
@@ -32,16 +35,24 @@ export function BillForm({ bill, onClose }: BillFormProps) {
 
   const createMutation = useMutation({
     mutationFn: (data: Parameters<typeof billsApi.create>[0]) => billsApi.create(data),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['bills'] });
+      try {
+        await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
+        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      } catch { /* best-effort */ }
       onClose();
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<Bill> }) => billsApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['bills'] });
+      try {
+        await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
+        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      } catch { /* best-effort */ }
       onClose();
     },
   });

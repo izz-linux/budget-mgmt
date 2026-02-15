@@ -1193,6 +1193,60 @@ func TestPeriodUpdate_NotFound(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Income: Create one_time schedule
+// ---------------------------------------------------------------------------
+
+func TestIncomeCreate_OneTime_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	now := time.Now()
+	rows := pgxmock.NewRows([]string{"id", "name", "pay_schedule", "schedule_detail", "default_amount", "is_active", "created_at", "updated_at"}).
+		AddRow(1, "Year-End Bonus", "one_time", json.RawMessage(`{"date":"2026-03-15"}`), float64Ptr(5000.0), true, now, now)
+
+	mock.ExpectQuery("INSERT INTO income_sources").
+		WithArgs("Year-End Bonus", "one_time", json.RawMessage(`{"date":"2026-03-15"}`), float64Ptr(5000.0)).
+		WillReturnRows(rows)
+
+	h := NewIncomeHandler(mock)
+	body := bytes.NewBufferString(`{"name":"Year-End Bonus","pay_schedule":"one_time","schedule_detail":{"date":"2026-03-15"},"default_amount":5000}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/income-sources", body)
+	rr := httptest.NewRecorder()
+
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected status 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestIncomeCreate_InvalidSchedule_StillRejects(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	h := NewIncomeHandler(mock)
+	body := bytes.NewBufferString(`{"name":"Test","pay_schedule":"daily","schedule_detail":{}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/income-sources", body)
+	rr := httptest.NewRecorder()
+
+	h.Create(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+	assertErrorCode(t, rr.Body.Bytes(), "VALIDATION_ERROR")
+}
+
+// ---------------------------------------------------------------------------
 // Bill List: active filter
 // ---------------------------------------------------------------------------
 

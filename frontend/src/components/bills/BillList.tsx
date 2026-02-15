@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, CreditCard, Zap } from 'lucide-react';
 import { billsApi } from '../../api/bills';
 import { BillForm } from './BillForm';
 import type { Bill } from '../../types';
+import { ordinal } from '../../utils/ordinal';
 import styles from './BillList.module.css';
 
 export function BillList() {
@@ -108,10 +109,4 @@ export function BillList() {
       )}
     </div>
   );
-}
-
-function ordinal(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }

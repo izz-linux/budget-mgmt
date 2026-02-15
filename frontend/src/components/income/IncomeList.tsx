@@ -13,6 +13,7 @@ const scheduleLabels: Record<string, string> = {
   weekly: 'Weekly',
   biweekly: 'Every 2 weeks',
   semimonthly: 'Twice a month',
+  one_time: 'One-time',
 };
 
 export function IncomeList() {

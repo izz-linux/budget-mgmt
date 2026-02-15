@@ -28,7 +28,7 @@ export interface CreditCard {
 export interface IncomeSource {
   id: number;
   name: string;
-  pay_schedule: 'weekly' | 'biweekly' | 'semimonthly';
+  pay_schedule: 'weekly' | 'biweekly' | 'semimonthly' | 'one_time';
   schedule_detail: Record<string, unknown>;
   default_amount: number | null;
   is_active: boolean;

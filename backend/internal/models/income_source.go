@@ -32,6 +32,11 @@ type SemiMonthlySchedule struct {
 	Days []int `json:"days"` // e.g. [1, 16]
 }
 
+// OneTimeSchedule is used when PaySchedule == "one_time" (e.g. bonus)
+type OneTimeSchedule struct {
+	Date string `json:"date"` // YYYY-MM-DD
+}
+
 type CreateIncomeSourceRequest struct {
 	Name           string          `json:"name"`
 	PaySchedule    string          `json:"pay_schedule"`
