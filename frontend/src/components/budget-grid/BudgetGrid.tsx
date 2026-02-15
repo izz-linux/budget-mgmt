@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Calendar, RefreshCw, Trash2 } from 'lucide-react';
 import { gridApi } from '../../api/grid';
@@ -79,6 +79,18 @@ export function BudgetGrid() {
   const bills = data?.bills || [];
   const periods = data?.periods || [];
   const assignments = data?.assignments || {};
+
+  // Auto-assign bills with due dates whenever grid loads with periods
+  const autoAssignRanRef = useRef('');
+  const rangeKey = useMemo(() => `${dateRange.from}-${dateRange.to}`, [dateRange.from, dateRange.to]);
+  useEffect(() => {
+    if (periods.length > 0 && autoAssignRanRef.current !== rangeKey) {
+      autoAssignRanRef.current = rangeKey;
+      assignmentsApi.autoAssign(dateRange.from, dateRange.to).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      }).catch(() => { /* best-effort */ });
+    }
+  }, [periods.length, rangeKey, dateRange.from, dateRange.to, queryClient]);
 
   const shiftRange = useCallback((months: number) => {
     const from = new Date(dateRange.from);

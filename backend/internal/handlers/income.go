@@ -91,9 +91,9 @@ func (h *IncomeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "name is required")
 		return
 	}
-	validSchedules := map[string]bool{"weekly": true, "biweekly": true, "semimonthly": true}
+	validSchedules := map[string]bool{"weekly": true, "biweekly": true, "semimonthly": true, "one_time": true}
 	if !validSchedules[req.PaySchedule] {
-		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "pay_schedule must be weekly, biweekly, or semimonthly")
+		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "pay_schedule must be weekly, biweekly, semimonthly, or one_time")
 		return
 	}
 

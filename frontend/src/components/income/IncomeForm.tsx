@@ -28,6 +28,7 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
     anchor_date: (detail?.anchor_date as string) || '',
     semi_day1: ((detail?.days as number[]) || [1, 16])[0],
     semi_day2: ((detail?.days as number[]) || [1, 16])[1],
+    one_time_date: (detail?.date as string) || new Date().toISOString().split('T')[0],
     start_date: new Date().toISOString().split('T')[0],
   });
 
@@ -35,12 +36,20 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
     mutationFn: (data: Partial<IncomeSource>) => incomeApi.create(data),
     onSuccess: async (created) => {
       queryClient.invalidateQueries({ queryKey: ['income-sources'] });
-      // Auto-generate pay periods from start_date to end of budget range
-      const from = form.start_date || dateRange.from;
-      const to = dateRange.to;
+      // Auto-generate pay periods
+      let from: string;
+      let to: string;
+      if (form.pay_schedule === 'one_time') {
+        // For one-time, ensure the date falls within the generation range
+        from = form.one_time_date;
+        to = form.one_time_date;
+      } else {
+        from = form.start_date || dateRange.from;
+        to = dateRange.to;
+      }
       try {
         await periodsApi.generate(from, to, [created.id]);
-        await assignmentsApi.autoAssign(from, to);
+        await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
         queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
       } catch {
         // Period generation is best-effort; user can retry from budget grid
@@ -65,6 +74,8 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
         return { weekday: Number(form.weekday), anchor_date: form.anchor_date };
       case 'semimonthly':
         return { days: [Number(form.semi_day1), Number(form.semi_day2)] };
+      case 'one_time':
+        return { date: form.one_time_date };
       default:
         return {};
     }
@@ -118,6 +129,7 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
                 <option value="weekly">Weekly</option>
                 <option value="biweekly">Biweekly</option>
                 <option value="semimonthly">Twice a month</option>
+                <option value="one_time">One-time (bonus, etc.)</option>
               </select>
             </div>
             <div className={styles.field}>
@@ -179,7 +191,19 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
             </div>
           )}
 
-          {!isEditing && (
+          {form.pay_schedule === 'one_time' && (
+            <div className={styles.field}>
+              <label>Date</label>
+              <input
+                type="date"
+                value={form.one_time_date}
+                onChange={(e) => set('one_time_date', e.target.value)}
+                required
+              />
+            </div>
+          )}
+
+          {!isEditing && form.pay_schedule !== 'one_time' && (
             <div className={styles.field}>
               <label>Start Date (generate periods from)</label>
               <input
