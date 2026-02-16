@@ -93,7 +93,8 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 		JOIN income_sources inc ON inc.id = pp.income_source_id
 		LEFT JOIN bill_assignments ba ON ba.pay_period_id = pp.id
 		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2
-		GROUP BY pp.id, inc.name
+		GROUP BY pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
+		         pp.actual_amount, pp.notes, pp.created_at, inc.name
 		ORDER BY pp.pay_date
 	`, from, to)
 	if err != nil {

@@ -305,6 +305,36 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Pre-fetch existing assignments in range so we know which bill+month combos
+	// already have an assignment (user may have moved bills to different periods).
+	type billMonth struct {
+		BillID int
+		Year   int
+		Month  time.Month
+	}
+	existingBillMonths := make(map[billMonth]bool)
+
+	existRows, err := h.db.Query(ctx, `
+		SELECT ba.bill_id, pp.pay_date
+		FROM bill_assignments ba
+		JOIN pay_periods pp ON pp.id = ba.pay_period_id
+		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2
+	`, req.From, req.To)
+	if err != nil {
+		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	defer existRows.Close()
+
+	for existRows.Next() {
+		var billID int
+		var payDate time.Time
+		if err := existRows.Scan(&billID, &payDate); err != nil {
+			continue
+		}
+		existingBillMonths[billMonth{billID, payDate.Year(), payDate.Month()}] = true
+	}
+
 	// For each bill, for each month in range, find the best period and create assignment
 	var created []models.BillAssignment
 	current := time.Date(fromDate.Year(), fromDate.Month(), 1, 0, 0, 0, 0, time.UTC)
@@ -314,6 +344,12 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		year, month := current.Year(), current.Month()
 
 		for _, bill := range bills {
+			// Skip if this bill already has an assignment for this month
+			// (user may have manually placed or moved it)
+			if existingBillMonths[billMonth{bill.ID, year, month}] {
+				continue
+			}
+
 			// Calculate due date for this month
 			dueDate := time.Date(year, month, bill.DueDay, 0, 0, 0, 0, time.UTC)
 			// Clamp to last day of month

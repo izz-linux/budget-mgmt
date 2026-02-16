@@ -809,6 +809,10 @@ func TestAutoAssign_MatchesBillsToPeriods(t *testing.T) {
 		AddRow(11, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC))
 	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
+	// No existing assignments for the pre-fetch check
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_date"})
+	mock.ExpectQuery("SELECT ba.bill_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
 	// Bill due on 15th should be assigned to period 10 (Feb 7, last period on or before 15th)
 	now := time.Now()
 	assignRow := pgxmock.NewRows([]string{
@@ -852,6 +856,10 @@ func TestAutoAssign_UsesFirstPeriodWhenNoneBeforeDueDate(t *testing.T) {
 		AddRow(10, time.Date(2026, 3, 7, 0, 0, 0, 0, time.UTC))
 	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
+	// No existing assignments for the pre-fetch check
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_date"})
+	mock.ExpectQuery("SELECT ba.bill_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
 	// Should still assign to period 10 (first available in that month)
 	now := time.Now()
 	assignRow := pgxmock.NewRows([]string{
@@ -893,10 +901,12 @@ func TestAutoAssign_SkipsExistingAssignments(t *testing.T) {
 		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC))
 	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
-	// ON CONFLICT DO NOTHING - returns no rows (assignment already exists)
-	mock.ExpectQuery("INSERT INTO bill_assignments").
-		WithArgs(1, 10, float64Ptr(100.0)).
-		WillReturnError(fmt.Errorf("no rows in result set"))
+	// Bill already has an assignment for Feb (on period 10) - pre-fetch returns it
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_date"}).
+		AddRow(1, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC))
+	mock.ExpectQuery("SELECT ba.bill_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
+	// No INSERT expected - the bill/month combo is already covered
 
 	h := NewAssignmentHandler(mock)
 	body := bytes.NewBufferString(`{"from":"2026-02-01","to":"2026-02-28"}`)
@@ -905,6 +915,45 @@ func TestAutoAssign_SkipsExistingAssignments(t *testing.T) {
 	h.AutoAssign(rr, req)
 
 	// Should return 201 with empty array (no new assignments created)
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestAutoAssign_SkipsWhenBillMovedToDifferentPeriod(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	// Bill due on the 15th
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
+
+	// Two periods: Feb 7 and Feb 21
+	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
+		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC)).
+		AddRow(11, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC))
+	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+
+	// User moved bill from period 10 (Feb 7) to period 11 (Feb 21) — existing assignment on 21st
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_date"}).
+		AddRow(1, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC))
+	mock.ExpectQuery("SELECT ba.bill_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
+	// No INSERT expected — bill already has an assignment for Feb, even though it's on a different period
+
+	h := NewAssignmentHandler(mock)
+	body := bytes.NewBufferString(`{"from":"2026-02-01","to":"2026-02-28"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
+	rr := httptest.NewRecorder()
+	h.AutoAssign(rr, req)
+
 	if rr.Code != http.StatusCreated {
 		t.Errorf("expected 201, got %d; body: %s", rr.Code, rr.Body.String())
 	}
