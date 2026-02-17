@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 	"strconv"
 	"time"
 
@@ -405,13 +404,6 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			// Skip if this bill already has an assignment in this month
 			if existingBillMonths[billMonth{bill.ID, year, month}] {
 				current = current.AddDate(0, 1, 0)
-				continue
-			}
-
-		for _, bill := range bills {
-			// Skip if this bill already has an assignment for this month
-			// (user may have manually placed or moved it)
-			if existingBillMonths[billMonth{bill.ID, year, month}] {
 				continue
 			}
 
