@@ -42,8 +42,9 @@ func (h *PeriodHandler) List(w http.ResponseWriter, r *http.Request) {
 		FROM pay_periods pp
 		JOIN income_sources inc ON inc.id = pp.income_source_id
 		LEFT JOIN bill_assignments ba ON ba.pay_period_id = pp.id
-		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2
-		GROUP BY pp.id, inc.name
+		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2 AND inc.is_active = true
+		GROUP BY pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
+		         pp.actual_amount, pp.notes, pp.created_at, inc.name
 		ORDER BY pp.pay_date
 	`, from, to)
 	if err != nil {

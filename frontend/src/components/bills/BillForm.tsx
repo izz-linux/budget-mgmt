@@ -17,11 +17,14 @@ export function BillForm({ bill, onClose }: BillFormProps) {
   const { dateRange } = useBudgetStore();
   const isEditing = !!bill;
 
+  const detail = bill?.recurrence_detail as Record<string, unknown> | undefined;
+
   const [form, setForm] = useState({
     name: bill?.name || '',
     default_amount: bill?.default_amount ?? '',
     due_day: bill?.due_day ?? '',
     recurrence: bill?.recurrence || 'monthly',
+    anchor_date: (detail?.anchor_date as string) || '',
     is_autopay: bill?.is_autopay || false,
     category: bill?.category || '',
     notes: bill?.notes || '',
@@ -47,15 +50,19 @@ export function BillForm({ bill, onClose }: BillFormProps) {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<Bill> }) => billsApi.update(id, data),
-    onSuccess: async () => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bills'] });
-      try {
-        await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
-        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
-      } catch { /* best-effort */ }
+      queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
       onClose();
     },
   });
+
+  const buildRecurrenceDetail = () => {
+    if (form.recurrence === 'biweekly' && form.anchor_date) {
+      return { anchor_date: form.anchor_date };
+    }
+    return undefined;
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +72,7 @@ export function BillForm({ bill, onClose }: BillFormProps) {
       default_amount: form.default_amount ? Number(form.default_amount) : null,
       due_day: form.due_day ? Number(form.due_day) : null,
       recurrence: form.recurrence,
+      recurrence_detail: buildRecurrenceDetail(),
       is_autopay: form.is_autopay,
       category: form.category,
       notes: form.notes,
@@ -163,6 +171,17 @@ export function BillForm({ bill, onClose }: BillFormProps) {
               </select>
             </div>
           </div>
+
+          {form.recurrence === 'biweekly' && (
+            <div className={styles.field}>
+              <label>Anchor Date (a known date this bill is due)</label>
+              <input
+                type="date"
+                value={form.anchor_date}
+                onChange={(e) => set('anchor_date', e.target.value)}
+              />
+            </div>
+          )}
 
           <div className={styles.checkRow}>
             <label className={styles.checkbox}>

@@ -24,12 +24,15 @@ export function IncomeList() {
 
   const { data: sources = [], isLoading } = useQuery({
     queryKey: ['income-sources'],
-    queryFn: () => incomeApi.list(),
+    queryFn: () => incomeApi.list(true),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => incomeApi.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['income-sources'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['income-sources'] });
+      queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+    },
   });
 
   const generateMutation = useMutation({
