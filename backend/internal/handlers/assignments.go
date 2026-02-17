@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -306,8 +307,15 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pre-fetch existing assignments in range so we know which bill+month combos
-	// already have an assignment (user may have moved bills to different periods).
+	// Pre-fetch existing assignments in range so we know which bill+period combos
+	// already exist (user may have moved or placed bills manually).
+	type billPeriod struct {
+		BillID   int
+		PeriodID int
+	}
+	existingPairs := make(map[billPeriod]bool)
+
+	// Also track bill+month for monthly bills to avoid duplicates
 	type billMonth struct {
 		BillID int
 		Year   int
@@ -316,7 +324,7 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 	existingBillMonths := make(map[billMonth]bool)
 
 	existRows, err := h.db.Query(ctx, `
-		SELECT ba.bill_id, pp.pay_date
+		SELECT ba.bill_id, ba.pay_period_id, pp.pay_date
 		FROM bill_assignments ba
 		JOIN pay_periods pp ON pp.id = ba.pay_period_id
 		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2
@@ -328,15 +336,58 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 	defer existRows.Close()
 
 	for existRows.Next() {
-		var billID int
+		var billID, periodID int
 		var payDate time.Time
-		if err := existRows.Scan(&billID, &payDate); err != nil {
+		if err := existRows.Scan(&billID, &periodID, &payDate); err != nil {
 			continue
 		}
+		existingPairs[billPeriod{billID, periodID}] = true
 		existingBillMonths[billMonth{billID, payDate.Year(), payDate.Month()}] = true
 	}
 
-	// For each bill, for each month in range, find the best period and create assignment
+	// Helper: find the best period for a due date (last period on or before it)
+	findBestPeriod := func(dueDate time.Time) int {
+		best := -1
+		for i := len(periods) - 1; i >= 0; i-- {
+			if !periods[i].PayDate.After(dueDate) {
+				best = i
+				break
+			}
+		}
+		if best < 0 && len(periods) > 0 {
+			// No period before due date; use earliest period in or after due date's month
+			year, month := dueDate.Year(), dueDate.Month()
+			idx := sort.Search(len(periods), func(i int) bool {
+				return periods[i].PayDate.Year() > year ||
+					(periods[i].PayDate.Year() == year && periods[i].PayDate.Month() >= month)
+			})
+			if idx < len(periods) {
+				best = idx
+			}
+		}
+		return best
+	}
+
+	// Helper: insert a single assignment
+	insertAssignment := func(billID int, periodID int, amount *float64) *models.BillAssignment {
+		var a models.BillAssignment
+		err := h.db.QueryRow(ctx, `
+			INSERT INTO bill_assignments (bill_id, pay_period_id, planned_amount, status)
+			VALUES ($1, $2, $3, 'pending')
+			ON CONFLICT (bill_id, pay_period_id) DO NOTHING
+			RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
+			          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
+		`, billID, periodID, amount).Scan(
+			&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
+			&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
+			&a.Notes, &a.CreatedAt, &a.UpdatedAt,
+		)
+		if err != nil {
+			return nil // ON CONFLICT DO NOTHING or other error
+		}
+		return &a
+	}
+
 	var created []models.BillAssignment
 
 	// Process biweekly bills: compute due dates every 14 days from anchor
@@ -407,7 +458,6 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Calculate due date for this month
 			dueDate := time.Date(year, month, bill.DueDay, 0, 0, 0, 0, time.UTC)
 			lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 			if bill.DueDay > lastDay {
