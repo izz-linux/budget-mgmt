@@ -128,21 +128,52 @@ func (h *IncomeHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var s models.IncomeSource
-	err = h.db.QueryRow(ctx, `
-		UPDATE income_sources SET
-			name = COALESCE($2, name),
-			pay_schedule = COALESCE($3, pay_schedule),
-			schedule_detail = COALESCE($4, schedule_detail),
-			default_amount = COALESCE($5, default_amount),
-			is_active = COALESCE($6, is_active),
-			updated_at = NOW()
-		WHERE id = $1
+	// Build dynamic update to avoid COALESCE issues with intentional NULLs
+	setClauses := []string{}
+	args := []interface{}{id}
+	argIdx := 2
+
+	if req.Name != nil {
+		setClauses = append(setClauses, "name = $"+strconv.Itoa(argIdx))
+		args = append(args, *req.Name)
+		argIdx++
+	}
+	if req.PaySchedule != nil {
+		setClauses = append(setClauses, "pay_schedule = $"+strconv.Itoa(argIdx))
+		args = append(args, *req.PaySchedule)
+		argIdx++
+	}
+	if req.ScheduleDetail != nil {
+		setClauses = append(setClauses, "schedule_detail = $"+strconv.Itoa(argIdx))
+		args = append(args, req.ScheduleDetail)
+		argIdx++
+	}
+	if req.DefaultAmount != nil {
+		setClauses = append(setClauses, "default_amount = $"+strconv.Itoa(argIdx))
+		args = append(args, *req.DefaultAmount)
+		argIdx++
+	}
+	if req.IsActive != nil {
+		setClauses = append(setClauses, "is_active = $"+strconv.Itoa(argIdx))
+		args = append(args, *req.IsActive)
+		argIdx++
+	}
+
+	if len(setClauses) == 0 {
+		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "no fields to update")
+		return
+	}
+
+	query := "UPDATE income_sources SET " + setClauses[0]
+	for i := 1; i < len(setClauses); i++ {
+		query += ", " + setClauses[i]
+	}
+	query += `, updated_at = NOW() WHERE id = $1
 		RETURNING id, name, pay_schedule, schedule_detail, default_amount,
-		          is_active, created_at, updated_at
-	`, id, req.Name, req.PaySchedule, req.ScheduleDetail,
-		req.DefaultAmount, req.IsActive,
-	).Scan(&s.ID, &s.Name, &s.PaySchedule, &s.ScheduleDetail,
+		          is_active, created_at, updated_at`
+
+	var s models.IncomeSource
+	err = h.db.QueryRow(ctx, query, args...).Scan(&s.ID, &s.Name, &s.PaySchedule, &s.ScheduleDetail,
 		&s.DefaultAmount, &s.IsActive, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "income source not found")
@@ -160,6 +191,24 @@ func (h *IncomeHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cascade: delete bill_assignments tied to this source's pay periods
+	_, err = h.db.Exec(ctx, `
+		DELETE FROM bill_assignments
+		WHERE pay_period_id IN (SELECT id FROM pay_periods WHERE income_source_id = $1)
+	`, id)
+	if err != nil {
+		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	// Cascade: delete pay periods for this source
+	_, err = h.db.Exec(ctx, `DELETE FROM pay_periods WHERE income_source_id = $1`, id)
+	if err != nil {
+		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	// Soft-delete the income source
 	tag, err := h.db.Exec(ctx, `UPDATE income_sources SET is_active = false, updated_at = NOW() WHERE id = $1`, id)
 	if err != nil {
 		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())

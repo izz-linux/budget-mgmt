@@ -739,7 +739,7 @@ func TestAutoAssign_NoBills(t *testing.T) {
 	}
 	defer mock.Close()
 
-	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"})
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence", "recurrence_detail"})
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
 	h := NewAssignmentHandler(mock)
@@ -771,12 +771,12 @@ func TestAutoAssign_NoPeriods(t *testing.T) {
 	}
 	defer mock.Close()
 
-	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
-		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence", "recurrence_detail"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly", nil)
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
 	periodRows := pgxmock.NewRows([]string{"id", "pay_date"})
-	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	h := NewAssignmentHandler(mock)
 	body := bytes.NewBufferString(`{"from":"2026-01-01","to":"2026-03-31"}`)
@@ -799,15 +799,19 @@ func TestAutoAssign_MatchesBillsToPeriods(t *testing.T) {
 	}
 	defer mock.Close()
 
-	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
-		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence", "recurrence_detail"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly", nil)
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
 	// Two periods: Feb 7 and Feb 21
 	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
 		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC)).
 		AddRow(11, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC))
-	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+
+	// No existing assignments for the pre-fetch check
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date"})
+	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
 	// No existing assignments for the pre-fetch check
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_date"})
@@ -847,14 +851,18 @@ func TestAutoAssign_UsesFirstPeriodWhenNoneBeforeDueDate(t *testing.T) {
 	defer mock.Close()
 
 	// Bill due on the 3rd
-	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
-		AddRow(1, "Internet", float64Ptr(50.0), 3, "monthly")
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence", "recurrence_detail"}).
+		AddRow(1, "Internet", float64Ptr(50.0), 3, "monthly", nil)
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
 	// Only period is on the 7th (after due date)
 	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
 		AddRow(10, time.Date(2026, 3, 7, 0, 0, 0, 0, time.UTC))
-	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+
+	// No existing assignments for the pre-fetch check
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date"})
+	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
 	// No existing assignments for the pre-fetch check
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_date"})
@@ -893,13 +901,13 @@ func TestAutoAssign_SkipsExistingAssignments(t *testing.T) {
 	}
 	defer mock.Close()
 
-	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
-		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence", "recurrence_detail"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly", nil)
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
 	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
 		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC))
-	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
+	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// Bill already has an assignment for Feb (on period 10) - pre-fetch returns it
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_date"}).
@@ -990,11 +998,11 @@ func TestAutoAssign_PeriodQueryError(t *testing.T) {
 	}
 	defer mock.Close()
 
-	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence"}).
-		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly")
+	billRows := pgxmock.NewRows([]string{"id", "name", "default_amount", "due_day", "recurrence", "recurrence_detail"}).
+		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly", nil)
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
-	mock.ExpectQuery("SELECT (.+) FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnError(fmt.Errorf("db error"))
+	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnError(fmt.Errorf("db error"))
 
 	h := NewAssignmentHandler(mock)
 	body := bytes.NewBufferString(`{"from":"2026-01-01","to":"2026-03-31"}`)
