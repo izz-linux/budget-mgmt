@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS bill_assignments (
     is_extra        BOOLEAN NOT NULL DEFAULT FALSE,
     extra_name      VARCHAR(255) NOT NULL DEFAULT '',
     notes           TEXT NOT NULL DEFAULT '',
+    manually_moved  BOOLEAN NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(bill_id, pay_period_id)

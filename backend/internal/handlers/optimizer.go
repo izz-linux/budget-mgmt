@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -81,10 +82,10 @@ func (h *OptimizerHandler) Suggest(w http.ResponseWriter, r *http.Request) {
 		periods = append(periods, p)
 	}
 
-	// Fetch current assignments
+	// Fetch current assignments (include assignment ID for apply)
 	assignRows, err := h.db.Query(ctx, `
-		SELECT bill_id, pay_period_id FROM bill_assignments
-		WHERE pay_period_id IN (SELECT id FROM pay_periods WHERE pay_date >= $1 AND pay_date <= $2)
+		SELECT ba.id, ba.bill_id, ba.pay_period_id FROM bill_assignments ba
+		WHERE ba.pay_period_id IN (SELECT id FROM pay_periods WHERE pay_date >= $1 AND pay_date <= $2)
 	`, req.From, req.To)
 	if err != nil {
 		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
@@ -95,7 +96,7 @@ func (h *OptimizerHandler) Suggest(w http.ResponseWriter, r *http.Request) {
 	var currentAssignments []services.OptAssignment
 	for assignRows.Next() {
 		var a services.OptAssignment
-		if err := assignRows.Scan(&a.BillID, &a.PeriodID); err != nil {
+		if err := assignRows.Scan(&a.AssignmentID, &a.BillID, &a.PeriodID); err != nil {
 			continue
 		}
 		currentAssignments = append(currentAssignments, a)
@@ -103,6 +104,76 @@ func (h *OptimizerHandler) Suggest(w http.ResponseWriter, r *http.Request) {
 
 	result := h.optimizer.Optimize(bills, periods, currentAssignments)
 	models.WriteJSON(w, http.StatusOK, result)
+}
+
+// Apply executes selected optimizer suggestions by moving assignments to new periods.
+// Each move deletes the old assignment and creates a new one in the target period,
+// marked as manually_moved since the optimizer is an explicit user action.
+func (h *OptimizerHandler) Apply(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req struct {
+		Moves []struct {
+			AssignmentID int `json:"assignment_id"`
+			ToPeriodID   int `json:"to_period_id"`
+		} `json:"moves"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		models.WriteError(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		return
+	}
+
+	if len(req.Moves) == 0 {
+		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "no moves specified")
+		return
+	}
+
+	var applied []models.BillAssignment
+
+	for _, move := range req.Moves {
+		// Look up the existing assignment
+		var billID int
+		var plannedAmount *float64
+		err := h.db.QueryRow(ctx, `
+			SELECT bill_id, planned_amount FROM bill_assignments WHERE id = $1
+		`, move.AssignmentID).Scan(&billID, &plannedAmount)
+		if err != nil {
+			models.WriteError(w, http.StatusNotFound, "NOT_FOUND",
+				fmt.Sprintf("assignment %d not found", move.AssignmentID))
+			return
+		}
+
+		// Delete the old assignment
+		_, err = h.db.Exec(ctx, `DELETE FROM bill_assignments WHERE id = $1`, move.AssignmentID)
+		if err != nil {
+			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+
+		// Create new assignment in the target period, marked as manually_moved
+		var a models.BillAssignment
+		err = h.db.QueryRow(ctx, `
+			INSERT INTO bill_assignments (bill_id, pay_period_id, planned_amount, status, manually_moved)
+			VALUES ($1, $2, $3, 'pending', true)
+			ON CONFLICT (bill_id, pay_period_id) DO UPDATE SET
+				planned_amount = EXCLUDED.planned_amount,
+				manually_moved = true,
+				updated_at = NOW()
+			RETURNING `+assignmentReturnCols+`
+		`, billID, move.ToPeriodID, plannedAmount).Scan(
+			&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
+			&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
+			&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt,
+		)
+		if err != nil {
+			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+
+		applied = append(applied, a)
+	}
+
+	models.WriteJSON(w, http.StatusOK, applied)
 }
 
 func (h *OptimizerHandler) Surplus(w http.ResponseWriter, r *http.Request) {

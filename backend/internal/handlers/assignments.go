@@ -19,13 +19,28 @@ func NewAssignmentHandler(db DBTX) *AssignmentHandler {
 	return &AssignmentHandler{db: db}
 }
 
+// scanCols is the standard set of columns returned by assignment queries.
+const assignmentSelectCols = `ba.id, ba.bill_id, ba.pay_period_id, ba.planned_amount,
+		       ba.forecast_amount, ba.actual_amount, ba.status, ba.deferred_to_id,
+		       ba.is_extra, COALESCE(ba.extra_name, ''), COALESCE(ba.notes, ''),
+		       ba.manually_moved, ba.created_at, ba.updated_at`
+
+const assignmentReturnCols = `id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
+		          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''),
+		          manually_moved, created_at, updated_at`
+
+func scanAssignment(scanner interface{ Scan(dest ...interface{}) error }, a *models.BillAssignment) error {
+	return scanner.Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount,
+		&a.ForecastAmount, &a.ActualAmount, &a.Status, &a.DeferredToID,
+		&a.IsExtra, &a.ExtraName, &a.Notes,
+		&a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt)
+}
+
 func (h *AssignmentHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	query := `
-		SELECT ba.id, ba.bill_id, ba.pay_period_id, ba.planned_amount,
-		       ba.forecast_amount, ba.actual_amount, ba.status, ba.deferred_to_id,
-		       ba.is_extra, COALESCE(ba.extra_name, ''), COALESCE(ba.notes, ''), ba.created_at, ba.updated_at,
+		SELECT ` + assignmentSelectCols + `,
 		       b.name
 		FROM bill_assignments ba
 		JOIN bills b ON b.id = ba.bill_id
@@ -66,7 +81,8 @@ func (h *AssignmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		var a models.BillAssignment
 		err := rows.Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount,
 			&a.ForecastAmount, &a.ActualAmount, &a.Status, &a.DeferredToID,
-			&a.IsExtra, &a.ExtraName, &a.Notes, &a.CreatedAt, &a.UpdatedAt,
+			&a.IsExtra, &a.ExtraName, &a.Notes,
+			&a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt,
 			&a.BillName)
 		if err != nil {
 			models.WriteError(w, http.StatusInternalServerError, "SCAN_ERROR", err.Error())
@@ -96,15 +112,14 @@ func (h *AssignmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var a models.BillAssignment
 	err := h.db.QueryRow(ctx, `
 		INSERT INTO bill_assignments (bill_id, pay_period_id, planned_amount, forecast_amount,
-		                              actual_amount, status, is_extra, extra_name, notes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
-		          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
+		                              actual_amount, status, is_extra, extra_name, notes, manually_moved)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+		RETURNING `+assignmentReturnCols+`
 	`, req.BillID, req.PayPeriodID, req.PlannedAmount, req.ForecastAmount,
 		req.ActualAmount, req.Status, req.IsExtra, req.ExtraName, req.Notes,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 		&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-		&a.Notes, &a.CreatedAt, &a.UpdatedAt)
+		&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
@@ -138,13 +153,12 @@ func (h *AssignmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			notes = COALESCE($7, notes),
 			updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
-		          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
+		RETURNING `+assignmentReturnCols+`
 	`, id, req.PlannedAmount, req.ForecastAmount, req.ActualAmount,
 		req.Status, req.DeferredToID, req.Notes,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 		&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-		&a.Notes, &a.CreatedAt, &a.UpdatedAt)
+		&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "assignment not found")
 		return
@@ -182,12 +196,11 @@ func (h *AssignmentHandler) UpdateStatus(w http.ResponseWriter, r *http.Request)
 			deferred_to_id = $3,
 			updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
-		          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
+		RETURNING `+assignmentReturnCols+`
 	`, id, req.Status, req.DeferredToID,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 		&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-		&a.Notes, &a.CreatedAt, &a.UpdatedAt)
+		&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "assignment not found")
 		return
@@ -217,12 +230,52 @@ func (h *AssignmentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ResetManualMoves clears manually_moved flags for assignments in a date range,
+// allowing auto-assign to manage them again.
+func (h *AssignmentHandler) ResetManualMoves(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var req struct {
+		From    string `json:"from"`
+		To      string `json:"to"`
+		BillIDs []int  `json:"bill_ids"` // optional: only reset specific bills
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		models.WriteError(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		return
+	}
+
+	if len(req.BillIDs) > 0 {
+		_, err := h.db.Exec(ctx, `
+			UPDATE bill_assignments SET manually_moved = false, updated_at = NOW()
+			WHERE pay_period_id IN (SELECT id FROM pay_periods WHERE pay_date >= $1 AND pay_date <= $2)
+			  AND bill_id = ANY($3)
+		`, req.From, req.To, req.BillIDs)
+		if err != nil {
+			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+	} else {
+		_, err := h.db.Exec(ctx, `
+			UPDATE bill_assignments SET manually_moved = false, updated_at = NOW()
+			WHERE pay_period_id IN (SELECT id FROM pay_periods WHERE pay_date >= $1 AND pay_date <= $2)
+		`, req.From, req.To)
+		if err != nil {
+			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var req struct {
-		From string `json:"from"`
-		To   string `json:"to"`
+		From  string `json:"from"`
+		To    string `json:"to"`
+		Force bool   `json:"force"` // if true, ignore manually_moved and reassign all
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		models.WriteError(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
@@ -323,8 +376,11 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 	}
 	existingBillMonths := make(map[billMonth]bool)
 
+	// Track which bills have been manually moved (skip them unless force=true)
+	manuallyMovedBills := make(map[billMonth]bool)
+
 	existRows, err := h.db.Query(ctx, `
-		SELECT ba.bill_id, ba.pay_period_id, pp.pay_date
+		SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved
 		FROM bill_assignments ba
 		JOIN pay_periods pp ON pp.id = ba.pay_period_id
 		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2
@@ -338,11 +394,16 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 	for existRows.Next() {
 		var billID, periodID int
 		var payDate time.Time
-		if err := existRows.Scan(&billID, &periodID, &payDate); err != nil {
+		var manuallyMoved bool
+		if err := existRows.Scan(&billID, &periodID, &payDate, &manuallyMoved); err != nil {
 			continue
 		}
 		existingPairs[billPeriod{billID, periodID}] = true
-		existingBillMonths[billMonth{billID, payDate.Year(), payDate.Month()}] = true
+		bm := billMonth{billID, payDate.Year(), payDate.Month()}
+		existingBillMonths[bm] = true
+		if manuallyMoved {
+			manuallyMovedBills[bm] = true
+		}
 	}
 
 	// Helper: find the best period for a due date (last period on or before it)
@@ -375,12 +436,11 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			INSERT INTO bill_assignments (bill_id, pay_period_id, planned_amount, status)
 			VALUES ($1, $2, $3, 'pending')
 			ON CONFLICT (bill_id, pay_period_id) DO NOTHING
-			RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
-			          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''), created_at, updated_at
+			RETURNING `+assignmentReturnCols+`
 		`, billID, periodID, amount).Scan(
 			&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 			&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-			&a.Notes, &a.CreatedAt, &a.UpdatedAt,
+			&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt,
 		)
 		if err != nil {
 			return nil // ON CONFLICT DO NOTHING or other error
@@ -451,9 +511,16 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 
 		for !current.After(endMonth) {
 			year, month := current.Year(), current.Month()
+			bm := billMonth{bill.ID, year, month}
 
 			// Skip if this bill already has an assignment in this month
-			if existingBillMonths[billMonth{bill.ID, year, month}] {
+			if existingBillMonths[bm] {
+				current = current.AddDate(0, 1, 0)
+				continue
+			}
+
+			// Skip if this bill was manually moved in this month (unless force)
+			if !req.Force && manuallyMovedBills[bm] {
 				current = current.AddDate(0, 1, 0)
 				continue
 			}

@@ -14,6 +14,7 @@ type BillAssignment struct {
 	IsExtra         bool      `json:"is_extra"`
 	ExtraName       string    `json:"extra_name,omitempty"`
 	Notes           string    `json:"notes"`
+	ManuallyMoved   bool      `json:"manually_moved"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 

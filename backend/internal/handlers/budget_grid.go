@@ -126,7 +126,8 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 		assignRows, err := h.db.Query(ctx, `
 			SELECT ba.id, ba.bill_id, ba.pay_period_id, ba.planned_amount,
 			       ba.forecast_amount, ba.actual_amount, ba.status, ba.deferred_to_id,
-			       ba.is_extra, COALESCE(ba.extra_name, ''), COALESCE(ba.notes, ''), ba.created_at, ba.updated_at,
+			       ba.is_extra, COALESCE(ba.extra_name, ''), COALESCE(ba.notes, ''),
+			       ba.manually_moved, ba.created_at, ba.updated_at,
 			       b.name
 			FROM bill_assignments ba
 			JOIN bills b ON b.id = ba.bill_id
@@ -143,7 +144,8 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 			var a models.BillAssignment
 			err := assignRows.Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount,
 				&a.ForecastAmount, &a.ActualAmount, &a.Status, &a.DeferredToID,
-				&a.IsExtra, &a.ExtraName, &a.Notes, &a.CreatedAt, &a.UpdatedAt,
+				&a.IsExtra, &a.ExtraName, &a.Notes,
+				&a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt,
 				&a.BillName)
 			if err != nil {
 				models.WriteError(w, http.StatusInternalServerError, "SCAN_ERROR", err.Error())
