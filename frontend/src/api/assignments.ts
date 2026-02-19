@@ -25,6 +25,9 @@ export const assignmentsApi = {
   delete: (id: number) =>
     api.delete(`/assignments/${id}`),
 
-  autoAssign: (from: string, to: string) =>
-    api.post<BillAssignment[]>('/assignments/auto-assign', { from, to }),
+  autoAssign: (from: string, to: string, force?: boolean) =>
+    api.post<BillAssignment[]>('/assignments/auto-assign', { from, to, force: force ?? false }),
+
+  resetManualMoves: (from: string, to: string, billIds?: number[]) =>
+    api.post<void>('/assignments/reset-manual-moves', { from, to, bill_ids: billIds }),
 };

@@ -810,16 +810,16 @@ func TestAutoAssign_MatchesBillsToPeriods(t *testing.T) {
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// No existing assignments for the pre-fetch check
-	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date"})
-	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
+	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
 	// Bill due on 15th should be assigned to period 10 (Feb 7, last period on or before 15th)
 	now := time.Now()
 	assignRow := pgxmock.NewRows([]string{
 		"id", "bill_id", "pay_period_id", "planned_amount", "forecast_amount",
 		"actual_amount", "status", "deferred_to_id", "is_extra", "extra_name",
-		"notes", "created_at", "updated_at",
-	}).AddRow(1, 1, 10, float64Ptr(100.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", now, now)
+		"notes", "manually_moved", "created_at", "updated_at",
+	}).AddRow(1, 1, 10, float64Ptr(100.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", false, now, now)
 
 	mock.ExpectQuery("INSERT INTO bill_assignments").
 		WithArgs(1, 10, float64Ptr(100.0)).
@@ -857,16 +857,16 @@ func TestAutoAssign_UsesFirstPeriodWhenNoneBeforeDueDate(t *testing.T) {
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// No existing assignments for the pre-fetch check
-	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date"})
-	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
+	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
 	// Should still assign to period 10 (first available in that month)
 	now := time.Now()
 	assignRow := pgxmock.NewRows([]string{
 		"id", "bill_id", "pay_period_id", "planned_amount", "forecast_amount",
 		"actual_amount", "status", "deferred_to_id", "is_extra", "extra_name",
-		"notes", "created_at", "updated_at",
-	}).AddRow(1, 1, 10, float64Ptr(50.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", now, now)
+		"notes", "manually_moved", "created_at", "updated_at",
+	}).AddRow(1, 1, 10, float64Ptr(50.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", false, now, now)
 
 	mock.ExpectQuery("INSERT INTO bill_assignments").
 		WithArgs(1, 10, float64Ptr(50.0)).
@@ -902,9 +902,9 @@ func TestAutoAssign_SkipsExistingAssignments(t *testing.T) {
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// Bill already has an assignment for Feb (on period 10) - pre-fetch returns it
-	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date"}).
-		AddRow(1, 10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC))
-	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"}).
+		AddRow(1, 10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC), false)
+	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
 	// No INSERT expected - the bill/month combo is already covered
 
@@ -942,9 +942,9 @@ func TestAutoAssign_SkipsWhenBillMovedToDifferentPeriod(t *testing.T) {
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// User moved bill from period 10 (Feb 7) to period 11 (Feb 21) — existing assignment on 21st
-	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date"}).
-		AddRow(1, 11, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC))
-	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"}).
+		AddRow(1, 11, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC), false)
+	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
 	// No INSERT expected — bill already has an assignment for Feb, even though it's on a different period
 
@@ -984,8 +984,8 @@ func TestAutoAssign_BiweeklyBillWithAnchorDate(t *testing.T) {
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// No existing assignments
-	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date"})
-	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
+	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
 	// Biweekly from Jan 15: Jan 15, Jan 29, Feb 12, Feb 26
 	// Jan 15 -> period 11 (Jan 15), Jan 29 -> period 11 (Jan 15, last on or before Jan 29)
@@ -997,8 +997,8 @@ func TestAutoAssign_BiweeklyBillWithAnchorDate(t *testing.T) {
 		assignRow := pgxmock.NewRows([]string{
 			"id", "bill_id", "pay_period_id", "planned_amount", "forecast_amount",
 			"actual_amount", "status", "deferred_to_id", "is_extra", "extra_name",
-			"notes", "created_at", "updated_at",
-		}).AddRow(i+1, 1, 11, float64Ptr(200.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", now, now)
+			"notes", "manually_moved", "created_at", "updated_at",
+		}).AddRow(i+1, 1, 11, float64Ptr(200.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", false, now, now)
 
 		mock.ExpectQuery("INSERT INTO bill_assignments").
 			WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg()).
@@ -1034,16 +1034,16 @@ func TestAutoAssign_BiweeklyFallsBackWithoutAnchor(t *testing.T) {
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// No existing assignments
-	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date"})
-	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
+	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
 	// Falls back to monthly: assigns to period 10
 	now := time.Now()
 	assignRow := pgxmock.NewRows([]string{
 		"id", "bill_id", "pay_period_id", "planned_amount", "forecast_amount",
 		"actual_amount", "status", "deferred_to_id", "is_extra", "extra_name",
-		"notes", "created_at", "updated_at",
-	}).AddRow(1, 1, 10, float64Ptr(200.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", now, now)
+		"notes", "manually_moved", "created_at", "updated_at",
+	}).AddRow(1, 1, 10, float64Ptr(200.0), (*float64)(nil), (*float64)(nil), "pending", (*int)(nil), false, "", "", false, now, now)
 
 	mock.ExpectQuery("INSERT INTO bill_assignments").
 		WithArgs(1, 10, float64Ptr(200.0)).

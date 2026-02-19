@@ -1,11 +1,15 @@
 import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { Lightbulb, TrendingUp, Calendar, ArrowRight } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Lightbulb, TrendingUp, Calendar, ArrowRight, Check, CheckSquare, Square } from 'lucide-react';
 import { useBudgetStore } from '../../stores/budgetStore';
 import styles from './OptimizerView.module.css';
 
 interface Suggestion {
+  assignment_id: number;
+  bill_id: number;
   bill_name: string;
+  from_period_id: number;
+  to_period_id: number;
   from_period: string;
   to_period: string;
   amount: number;
@@ -33,7 +37,10 @@ interface SurplusResult {
 
 export function OptimizerView() {
   const { dateRange } = useBudgetStore();
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<'assign' | 'surplus'>('assign');
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [applied, setApplied] = useState(false);
 
   const optimizeMutation = useMutation({
     mutationFn: async () => {
@@ -46,7 +53,61 @@ export function OptimizerView() {
       const json = await res.json();
       return json.data as OptimizationResult;
     },
+    onSuccess: (data) => {
+      // Select all by default
+      setSelected(new Set(data.suggestions.map((_, i) => i)));
+      setApplied(false);
+    },
   });
+
+  const applyMutation = useMutation({
+    mutationFn: async (moves: { assignment_id: number; to_period_id: number }[]) => {
+      const res = await fetch('/api/v1/optimizer/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves }),
+      });
+      if (!res.ok) throw new Error('Apply failed');
+      return res.json();
+    },
+    onSuccess: () => {
+      setApplied(true);
+      queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+    },
+  });
+
+  const suggestions = optimizeMutation.data?.suggestions ?? [];
+
+  const toggleSelection = (idx: number) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === suggestions.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(suggestions.map((_, i) => i)));
+    }
+  };
+
+  const handleApply = () => {
+    const moves = suggestions
+      .filter((_, i) => selected.has(i))
+      .map(s => ({ assignment_id: s.assignment_id, to_period_id: s.to_period_id }));
+    if (moves.length > 0) {
+      applyMutation.mutate(moves);
+    }
+  };
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
 
   const { data: surplusData, isLoading: surplusLoading } = useQuery({
     queryKey: ['surplus', dateRange.from],
@@ -116,29 +177,82 @@ export function OptimizerView() {
                 </div>
               )}
 
-              {optimizeMutation.data.suggestions.length > 0 ? (
+              {applied && (
+                <div className={styles.appliedBanner}>
+                  <Check size={16} />
+                  Changes applied successfully. Run the optimizer again to see the current state.
+                </div>
+              )}
+
+              {suggestions.length > 0 && !applied ? (
                 <div className={styles.suggestionList}>
-                  <h3>Suggested Changes</h3>
-                  {optimizeMutation.data.suggestions.map((s, i) => (
-                    <div key={i} className={styles.suggestion}>
-                      <div className={styles.suggestionMain}>
-                        <span className={styles.suggestionBill}>{s.bill_name}</span>
-                        <span className={styles.suggestionAmount}>${s.amount.toFixed(0)}</span>
+                  <div className={styles.suggestionHeader}>
+                    <h3>Proposed Changes</h3>
+                    <div className={styles.suggestionActions}>
+                      <button className={styles.selectAllBtn} onClick={toggleAll}>
+                        {selected.size === suggestions.length ? (
+                          <><CheckSquare size={14} /> Deselect All</>
+                        ) : (
+                          <><Square size={14} /> Select All</>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {suggestions.map((s, i) => (
+                    <div
+                      key={i}
+                      className={`${styles.suggestion} ${selected.has(i) ? styles.suggestionSelected : ''}`}
+                      onClick={() => toggleSelection(i)}
+                    >
+                      <div className={styles.suggestionCheck}>
+                        {selected.has(i) ? <CheckSquare size={18} /> : <Square size={18} />}
                       </div>
-                      <div className={styles.suggestionMove}>
-                        <span>{s.from_period}</span>
-                        <ArrowRight size={14} />
-                        <span>{s.to_period}</span>
+                      <div className={styles.suggestionBody}>
+                        <div className={styles.suggestionMain}>
+                          <span className={styles.suggestionBill}>{s.bill_name}</span>
+                          <span className={styles.suggestionAmount}>${s.amount.toFixed(0)}</span>
+                        </div>
+                        <div className={styles.suggestionMove}>
+                          <span>{formatDate(s.from_period)}</span>
+                          <ArrowRight size={14} />
+                          <span>{formatDate(s.to_period)}</span>
+                        </div>
+                        <div className={styles.suggestionReason}>{s.reason}</div>
                       </div>
-                      <div className={styles.suggestionReason}>{s.reason}</div>
                     </div>
                   ))}
+
+                  <div className={styles.applyBar}>
+                    <span className={styles.applyCount}>
+                      {selected.size} of {suggestions.length} selected
+                    </span>
+                    <div className={styles.applyButtons}>
+                      <button
+                        className={styles.applySelectedBtn}
+                        onClick={handleApply}
+                        disabled={selected.size === 0 || applyMutation.isPending}
+                      >
+                        {applyMutation.isPending ? 'Applying...' : (
+                          selected.size === suggestions.length
+                            ? 'Apply All Changes'
+                            : `Apply ${selected.size} Selected`
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {applyMutation.isError && (
+                    <div className={styles.errorBanner}>
+                      Failed to apply changes. Please try again.
+                    </div>
+                  )}
                 </div>
-              ) : (
+              ) : !applied ? (
                 <div className={styles.noChanges}>
                   Your bill assignments are already optimal for this period.
                 </div>
-              )}
+              ) : null}
             </div>
           )}
         </div>

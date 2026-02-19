@@ -20,16 +20,21 @@ type OptPeriod struct {
 }
 
 type OptAssignment struct {
-	BillID   int
-	PeriodID int
+	BillID       int
+	PeriodID     int
+	AssignmentID int // DB ID of the bill_assignment row
 }
 
 type Suggestion struct {
-	BillName   string  `json:"bill_name"`
-	FromPeriod string  `json:"from_period"`
-	ToPeriod   string  `json:"to_period"`
-	Amount     float64 `json:"amount"`
-	Reason     string  `json:"reason"`
+	AssignmentID int     `json:"assignment_id"` // DB ID of the assignment to move
+	BillID       int     `json:"bill_id"`
+	BillName     string  `json:"bill_name"`
+	FromPeriodID int     `json:"from_period_id"`
+	ToPeriodID   int     `json:"to_period_id"`
+	FromPeriod   string  `json:"from_period"` // YYYY-MM-DD
+	ToPeriod     string  `json:"to_period"`   // YYYY-MM-DD
+	Amount       float64 `json:"amount"`
+	Reason       string  `json:"reason"`
 }
 
 type OptimizationResult struct {
@@ -126,11 +131,15 @@ func (o *Optimizer) Optimize(bills []OptBill, periods []OptPeriod, currentAssign
 		bill := findBill(bills, optimized[bestIdx].BillID)
 
 		suggestions = append(suggestions, Suggestion{
-			BillName:   bill.Name,
-			FromPeriod: fromPeriod.PayDate,
-			ToPeriod:   toPeriod.PayDate,
-			Amount:     bill.Amount,
-			Reason:     "Rebalance: move from overloaded to surplus period",
+			AssignmentID: optimized[bestIdx].AssignmentID,
+			BillID:       bill.ID,
+			BillName:     bill.Name,
+			FromPeriodID: fromPeriod.ID,
+			ToPeriodID:   toPeriod.ID,
+			FromPeriod:   fromPeriod.PayDate,
+			ToPeriod:     toPeriod.PayDate,
+			Amount:       bill.Amount,
+			Reason:       "Rebalance: move from overloaded to surplus period",
 		})
 
 		optimized[bestIdx].PeriodID = surplusID

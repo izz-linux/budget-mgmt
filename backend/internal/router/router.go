@@ -80,6 +80,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		r.Get("/assignments", assignH.List)
 		r.Post("/assignments", assignH.Create)
 		r.Post("/assignments/auto-assign", assignH.AutoAssign)
+		r.Post("/assignments/reset-manual-moves", assignH.ResetManualMoves)
 		r.Put("/assignments/{id}", assignH.Update)
 		r.Patch("/assignments/{id}/status", assignH.UpdateStatus)
 		r.Delete("/assignments/{id}", assignH.Delete)
@@ -94,6 +95,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 
 		// Optimizer
 		r.Post("/optimizer/suggest", optimizerH.Suggest)
+		r.Post("/optimizer/apply", optimizerH.Apply)
 		r.Get("/optimizer/surplus", optimizerH.Surplus)
 
 		// Dashboard

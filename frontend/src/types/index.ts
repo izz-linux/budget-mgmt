@@ -61,6 +61,7 @@ export interface BillAssignment {
   is_extra: boolean;
   extra_name: string;
   notes: string;
+  manually_moved: boolean;
   created_at: string;
   updated_at: string;
   bill_name?: string;
