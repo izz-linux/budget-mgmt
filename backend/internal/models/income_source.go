@@ -29,7 +29,8 @@ type BiweeklySchedule struct {
 
 // SemiMonthlySchedule is used when PaySchedule == "semimonthly"
 type SemiMonthlySchedule struct {
-	Days []int `json:"days"` // e.g. [1, 16]
+	Days              []int `json:"days"`                // e.g. [1, 16]
+	AdjustForWeekends bool  `json:"adjust_for_weekends"` // if true, move weekend dates to preceding Friday
 }
 
 // OneTimeSchedule is used when PaySchedule == "one_time" (e.g. bonus)

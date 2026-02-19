@@ -21,7 +21,7 @@ export function BillList() {
     mutationFn: (id: number) => billsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bills'] });
-      queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false });
     },
   });
 

@@ -1419,3 +1419,98 @@ func TestGenerateSemiMonthly_FullYear(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateSemiMonthly_AdjustForWeekends(t *testing.T) {
+	gen := NewPeriodGenerator()
+
+	t.Run("SaturdayMovesToFriday", func(t *testing.T) {
+		// Feb 1, 2025 is a Saturday
+		source := makeSource(t, "semimonthly", models.SemiMonthlySchedule{
+			Days:              []int{1, 16},
+			AdjustForWeekends: true,
+		})
+
+		from := date(2025, time.February, 1)
+		to := date(2025, time.February, 28)
+
+		dates, err := gen.Generate(source, from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Feb 1 (Saturday) -> Jan 31 (Friday), but Jan 31 is before range
+		// Feb 16 (Sunday) -> Feb 14 (Friday)
+		expected := []time.Time{
+			date(2025, time.February, 14), // Feb 16 (Sunday) adjusted to Feb 14 (Friday)
+		}
+		assertDates(t, dates, expected)
+	})
+
+	t.Run("SundayMovesToFriday", func(t *testing.T) {
+		// Feb 16, 2025 is a Sunday
+		source := makeSource(t, "semimonthly", models.SemiMonthlySchedule{
+			Days:              []int{15, 16},
+			AdjustForWeekends: true,
+		})
+
+		from := date(2025, time.February, 1)
+		to := date(2025, time.February, 28)
+
+		dates, err := gen.Generate(source, from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Feb 15 (Saturday) -> Feb 14 (Friday)
+		// Feb 16 (Sunday) -> Feb 14 (Friday)
+		expected := []time.Time{
+			date(2025, time.February, 14), // Feb 15 (Saturday) adjusted
+			date(2025, time.February, 14), // Feb 16 (Sunday) adjusted
+		}
+		assertDates(t, dates, expected)
+	})
+
+	t.Run("WeekdaysUnchanged", func(t *testing.T) {
+		// March 2025: 3rd is Monday, 17th is Monday
+		source := makeSource(t, "semimonthly", models.SemiMonthlySchedule{
+			Days:              []int{3, 17},
+			AdjustForWeekends: true,
+		})
+
+		from := date(2025, time.March, 1)
+		to := date(2025, time.March, 31)
+
+		dates, err := gen.Generate(source, from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		expected := []time.Time{
+			date(2025, time.March, 3),  // Monday, unchanged
+			date(2025, time.March, 17), // Monday, unchanged
+		}
+		assertDates(t, dates, expected)
+	})
+
+	t.Run("NoAdjustment", func(t *testing.T) {
+		// Feb 1, 2025 is Saturday, Feb 16 is Sunday, but no adjustment
+		source := makeSource(t, "semimonthly", models.SemiMonthlySchedule{
+			Days:              []int{1, 16},
+			AdjustForWeekends: false,
+		})
+
+		from := date(2025, time.February, 1)
+		to := date(2025, time.February, 28)
+
+		dates, err := gen.Generate(source, from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		expected := []time.Time{
+			date(2025, time.February, 1),  // Saturday, not adjusted
+			date(2025, time.February, 16), // Sunday, not adjusted
+		}
+		assertDates(t, dates, expected)
+	})
+}
