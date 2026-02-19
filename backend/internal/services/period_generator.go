@@ -114,6 +114,12 @@ func (g *PeriodGenerator) generateSemiMonthly(detail json.RawMessage, from, to t
 				actualDay = lastDay
 			}
 			d := time.Date(year, month, actualDay, 0, 0, 0, 0, current.Location())
+
+			// Adjust for weekends: move to preceding Friday
+			if schedule.AdjustForWeekends {
+				d = adjustToWeekday(d)
+			}
+
 			if !d.Before(from) && !d.After(to) {
 				dates = append(dates, d)
 			}
@@ -122,6 +128,18 @@ func (g *PeriodGenerator) generateSemiMonthly(detail json.RawMessage, from, to t
 	}
 
 	return dates, nil
+}
+
+// adjustToWeekday moves weekend dates to the preceding Friday
+func adjustToWeekday(d time.Time) time.Time {
+	switch d.Weekday() {
+	case time.Saturday:
+		return d.AddDate(0, 0, -1) // Friday
+	case time.Sunday:
+		return d.AddDate(0, 0, -2) // Friday
+	default:
+		return d
+	}
 }
 
 func (g *PeriodGenerator) generateOneTime(detail json.RawMessage, from, to time.Time) ([]time.Time, error) {

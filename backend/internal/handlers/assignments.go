@@ -450,20 +450,29 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 
 	var created []models.BillAssignment
 
-	// Process biweekly bills: compute due dates every 14 days from anchor
-	assignBiweekly := func(bill billInfo) bool {
-		var detail struct {
+	// parseAnchorDate extracts and parses anchor_date from recurrence_detail
+	parseAnchorDate := func(detail json.RawMessage) (time.Time, bool) {
+		var d struct {
 			AnchorDate string `json:"anchor_date"`
 		}
-		if len(bill.RecurrenceDetail) > 0 {
-			json.Unmarshal(bill.RecurrenceDetail, &detail)
+		if len(detail) > 0 {
+			json.Unmarshal(detail, &d)
 		}
-		if detail.AnchorDate == "" {
+		if d.AnchorDate == "" {
+			return time.Time{}, false
+		}
+		anchor, err := time.Parse("2006-01-02", d.AnchorDate)
+		if err != nil {
+			return time.Time{}, false
+		}
+		return anchor, true
+	}
+
+	// Process biweekly bills: compute due dates every 14 days from anchor
+	assignBiweekly := func(bill billInfo) bool {
+		anchor, ok := parseAnchorDate(bill.RecurrenceDetail)
+		if !ok {
 			return false // no anchor, fall back to monthly
-		}
-		anchor, parseErr := time.Parse("2006-01-02", detail.AnchorDate)
-		if parseErr != nil {
-			return false
 		}
 
 		// Calculate start of biweekly cycle relative to range
@@ -500,6 +509,76 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			if result := insertAssignment(bill.ID, pid, &a); result != nil {
 				created = append(created, *result)
 			}
+		}
+		return true
+	}
+
+	// Process quarterly bills: compute due dates every 3 months from anchor
+	assignQuarterly := func(bill billInfo) bool {
+		anchor, ok := parseAnchorDate(bill.RecurrenceDetail)
+		if !ok {
+			return false // no anchor, fall back to monthly
+		}
+
+		// Find the first occurrence on or after fromDate
+		cur := anchor
+		for cur.Before(fromDate) {
+			cur = cur.AddDate(0, 3, 0)
+		}
+		// Also check if we need to go back one cycle
+		prev := cur.AddDate(0, -3, 0)
+		if !prev.Before(fromDate) {
+			cur = prev
+		}
+
+		for !cur.After(toDate) {
+			if !cur.Before(fromDate) {
+				idx := findBestPeriod(cur)
+				if idx >= 0 {
+					pid := periods[idx].ID
+					if !existingPairs[billPeriod{bill.ID, pid}] {
+						if a := insertAssignment(bill.ID, pid, bill.DefaultAmount); a != nil {
+							created = append(created, *a)
+						}
+					}
+				}
+			}
+			cur = cur.AddDate(0, 3, 0)
+		}
+		return true
+	}
+
+	// Process annual bills: compute due dates every 12 months from anchor
+	assignAnnual := func(bill billInfo) bool {
+		anchor, ok := parseAnchorDate(bill.RecurrenceDetail)
+		if !ok {
+			return false // no anchor, fall back to monthly
+		}
+
+		// Find the first occurrence on or after fromDate
+		cur := anchor
+		for cur.Before(fromDate) {
+			cur = cur.AddDate(1, 0, 0)
+		}
+		// Also check if we need to go back one cycle
+		prev := cur.AddDate(-1, 0, 0)
+		if !prev.Before(fromDate) {
+			cur = prev
+		}
+
+		for !cur.After(toDate) {
+			if !cur.Before(fromDate) {
+				idx := findBestPeriod(cur)
+				if idx >= 0 {
+					pid := periods[idx].ID
+					if !existingPairs[billPeriod{bill.ID, pid}] {
+						if a := insertAssignment(bill.ID, pid, bill.DefaultAmount); a != nil {
+							created = append(created, *a)
+						}
+					}
+				}
+			}
+			cur = cur.AddDate(1, 0, 0)
 		}
 		return true
 	}
@@ -548,12 +627,21 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, bill := range bills {
-		if bill.Recurrence == "biweekly" {
+		switch bill.Recurrence {
+		case "biweekly":
 			if assignBiweekly(bill) {
 				continue
 			}
+		case "quarterly":
+			if assignQuarterly(bill) {
+				continue
+			}
+		case "annual":
+			if assignAnnual(bill) {
+				continue
+			}
 		}
-		// Monthly or fallback for biweekly without anchor
+		// Monthly or fallback for non-monthly without anchor
 		assignMonthly(bill)
 	}
 

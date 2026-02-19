@@ -44,29 +44,29 @@ export function BudgetGrid() {
   const updateAssignment = useMutation({
     mutationFn: ({ id, ...updates }: { id: number } & Partial<BillAssignment>) =>
       assignmentsApi.update(id, updates),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false }),
   });
 
   const createAssignment = useMutation({
     mutationFn: (data: Partial<BillAssignment>) => assignmentsApi.create(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false }),
   });
 
   const statusCycle = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) =>
       assignmentsApi.updateStatus(id, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false }),
   });
 
   const deleteAssignment = useMutation({
     mutationFn: (id: number) => assignmentsApi.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false }),
   });
 
   const updatePeriod = useMutation({
     mutationFn: ({ id, expected_amount }: { id: number; expected_amount: number }) =>
       periodsApi.update(id, { expected_amount }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false }),
   });
 
   const generatePeriods = useMutation({
@@ -74,7 +74,7 @@ export function BudgetGrid() {
       await periodsApi.generate(dateRange.from, dateRange.to);
       await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false }),
   });
 
   const bills = data?.bills || [];
@@ -88,7 +88,7 @@ export function BudgetGrid() {
     if (periods.length > 0 && autoAssignRanRef.current !== rangeKey) {
       autoAssignRanRef.current = rangeKey;
       assignmentsApi.autoAssign(dateRange.from, dateRange.to).then(() => {
-        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+        queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false });
       }).catch(() => { /* best-effort */ });
     }
   }, [periods.length, rangeKey, dateRange.from, dateRange.to, queryClient]);

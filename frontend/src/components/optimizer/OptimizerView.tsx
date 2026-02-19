@@ -72,7 +72,7 @@ export function OptimizerView() {
     },
     onSuccess: () => {
       setApplied(true);
-      queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false });
     },
   });
 

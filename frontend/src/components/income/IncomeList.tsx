@@ -31,7 +31,7 @@ export function IncomeList() {
     mutationFn: (id: number) => incomeApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['income-sources'] });
-      queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false });
     },
   });
 
@@ -40,7 +40,7 @@ export function IncomeList() {
       await periodsApi.generate(dateRange.from, dateRange.to);
       await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false }),
   });
 
   const handleClose = () => {

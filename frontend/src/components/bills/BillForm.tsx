@@ -42,7 +42,7 @@ export function BillForm({ bill, onClose }: BillFormProps) {
       queryClient.invalidateQueries({ queryKey: ['bills'] });
       try {
         await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
-        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+        queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false });
       } catch { /* best-effort */ }
       onClose();
     },
@@ -52,13 +52,14 @@ export function BillForm({ bill, onClose }: BillFormProps) {
     mutationFn: ({ id, data }: { id: number; data: Partial<Bill> }) => billsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bills'] });
-      queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+      queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false });
       onClose();
     },
   });
 
   const buildRecurrenceDetail = () => {
-    if (form.recurrence === 'biweekly' && form.anchor_date) {
+    const needsAnchor = ['biweekly', 'quarterly', 'annual'].includes(form.recurrence);
+    if (needsAnchor && form.anchor_date) {
       return { anchor_date: form.anchor_date };
     }
     return undefined;
@@ -172,7 +173,7 @@ export function BillForm({ bill, onClose }: BillFormProps) {
             </div>
           </div>
 
-          {form.recurrence === 'biweekly' && (
+          {['biweekly', 'quarterly', 'annual'].includes(form.recurrence) && (
             <div className={styles.field}>
               <label>Anchor Date (a known date this bill is due)</label>
               <input

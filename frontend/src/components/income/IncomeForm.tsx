@@ -28,6 +28,7 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
     anchor_date: (detail?.anchor_date as string) || '',
     semi_day1: ((detail?.days as number[]) || [1, 16])[0],
     semi_day2: ((detail?.days as number[]) || [1, 16])[1],
+    adjust_for_weekends: (detail?.adjust_for_weekends as boolean) ?? true,
     one_time_date: (detail?.date as string) || new Date().toISOString().split('T')[0],
     start_date: new Date().toISOString().split('T')[0],
   });
@@ -50,7 +51,7 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
       try {
         await periodsApi.generate(from, to, [created.id]);
         await assignmentsApi.autoAssign(dateRange.from, dateRange.to);
-        queryClient.invalidateQueries({ queryKey: ['budget-grid'] });
+        queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false });
       } catch {
         // Period generation is best-effort; user can retry from budget grid
       }
@@ -73,7 +74,10 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
       case 'biweekly':
         return { weekday: Number(form.weekday), anchor_date: form.anchor_date };
       case 'semimonthly':
-        return { days: [Number(form.semi_day1), Number(form.semi_day2)] };
+        return {
+          days: [Number(form.semi_day1), Number(form.semi_day2)],
+          adjust_for_weekends: form.adjust_for_weekends,
+        };
       case 'one_time':
         return { date: form.one_time_date };
       default:
@@ -167,28 +171,40 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
           )}
 
           {form.pay_schedule === 'semimonthly' && (
-            <div className={styles.row}>
-              <div className={styles.field}>
-                <label>First Pay Day</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="31"
-                  value={form.semi_day1}
-                  onChange={(e) => set('semi_day1', e.target.value)}
-                />
+            <>
+              <div className={styles.row}>
+                <div className={styles.field}>
+                  <label>First Pay Day</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={form.semi_day1}
+                    onChange={(e) => set('semi_day1', e.target.value)}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label>Second Pay Day</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={form.semi_day2}
+                    onChange={(e) => set('semi_day2', e.target.value)}
+                  />
+                </div>
               </div>
-              <div className={styles.field}>
-                <label>Second Pay Day</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="31"
-                  value={form.semi_day2}
-                  onChange={(e) => set('semi_day2', e.target.value)}
-                />
+              <div className={styles.checkRow}>
+                <label className={styles.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={form.adjust_for_weekends}
+                    onChange={(e) => set('adjust_for_weekends', e.target.checked)}
+                  />
+                  Move weekend pay dates to preceding Friday
+                </label>
               </div>
-            </div>
+            </>
           )}
 
           {form.pay_schedule === 'one_time' && (
