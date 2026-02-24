@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { DollarSign, Receipt, TrendingUp, AlertCircle } from 'lucide-react';
 import { gridApi } from '../../api/grid';
 import { ordinal } from '../../utils/ordinal';
+import { formatShortDate } from '../../utils/date';
 import styles from './Dashboard.module.css';
 
 export function Dashboard() {
@@ -124,7 +125,7 @@ export function Dashboard() {
             <div className={styles.upcomingList}>
               {tightPeriods.map((period) => (
                 <div key={period.id} className={`${styles.upcomingItem} ${styles.warningItem}`}>
-                  <span>{new Date(period.pay_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  <span>{formatShortDate(period.pay_date)}</span>
                   <span className={styles.upcomingName}>{period.source_name}</span>
                   <span style={{ color: 'var(--color-danger)', fontWeight: 600 }}>
                     ${period.remaining.toFixed(0)}
@@ -147,7 +148,7 @@ export function Dashboard() {
                 <div key={period.id} className={styles.periodItem}>
                   <div className={styles.periodHeader}>
                     <span>
-                      {new Date(period.pay_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {formatShortDate(period.pay_date)}
                       {' '}
                       <span className={styles.periodSource}>{period.source_name}</span>
                     </span>

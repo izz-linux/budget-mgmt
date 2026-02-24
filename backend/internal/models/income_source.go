@@ -12,6 +12,7 @@ type IncomeSource struct {
 	ScheduleDetail json.RawMessage `json:"schedule_detail"`
 	DefaultAmount  *float64        `json:"default_amount"`
 	IsActive       bool            `json:"is_active"`
+	EffectiveFrom  *time.Time      `json:"effective_from"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
@@ -43,6 +44,7 @@ type CreateIncomeSourceRequest struct {
 	PaySchedule    string          `json:"pay_schedule"`
 	ScheduleDetail json.RawMessage `json:"schedule_detail"`
 	DefaultAmount  *float64        `json:"default_amount"`
+	EffectiveFrom  *string         `json:"effective_from"` // YYYY-MM-DD format
 }
 
 type UpdateIncomeSourceRequest struct {
@@ -51,4 +53,5 @@ type UpdateIncomeSourceRequest struct {
 	ScheduleDetail json.RawMessage  `json:"schedule_detail,omitempty"`
 	DefaultAmount  *float64         `json:"default_amount,omitempty"`
 	IsActive       *bool            `json:"is_active,omitempty"`
+	EffectiveFrom  *string          `json:"effective_from,omitempty"` // YYYY-MM-DD format
 }

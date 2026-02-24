@@ -8,6 +8,7 @@ import { useBudgetStore } from '../../stores/budgetStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { Bill, PayPeriod, BillAssignment } from '../../types';
 import { ordinal } from '../../utils/ordinal';
+import { formatShortDate, formatMonthYear } from '../../utils/date';
 import styles from './BudgetGrid.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -183,10 +184,7 @@ export function BudgetGrid() {
     deleteAssignment.mutate(assignment.id);
   };
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+  const formatDate = formatShortDate;
 
   const formatAmount = (amount: number | null | undefined) => {
     if (amount == null) return '';
@@ -366,9 +364,9 @@ export function BudgetGrid() {
           </button>
           <span className={styles.dateLabel}>
             <Calendar size={14} />
-            {new Date(dateRange.from).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+            {formatMonthYear(dateRange.from)}
             {' - '}
-            {new Date(dateRange.to).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+            {formatMonthYear(dateRange.to)}
           </span>
           <button className={styles.navBtn} onClick={() => shiftRange(1)}>
             <ChevronRight size={18} />

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
@@ -23,7 +24,7 @@ func (h *IncomeHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT id, name, pay_schedule, schedule_detail, default_amount,
-		       is_active, created_at, updated_at
+		       is_active, effective_from, created_at, updated_at
 		FROM income_sources
 	`
 	if activeOnly {
@@ -42,7 +43,7 @@ func (h *IncomeHandler) List(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s models.IncomeSource
 		err := rows.Scan(&s.ID, &s.Name, &s.PaySchedule, &s.ScheduleDetail,
-			&s.DefaultAmount, &s.IsActive, &s.CreatedAt, &s.UpdatedAt)
+			&s.DefaultAmount, &s.IsActive, &s.EffectiveFrom, &s.CreatedAt, &s.UpdatedAt)
 		if err != nil {
 			models.WriteError(w, http.StatusInternalServerError, "SCAN_ERROR", err.Error())
 			return
@@ -67,10 +68,10 @@ func (h *IncomeHandler) Get(w http.ResponseWriter, r *http.Request) {
 	var s models.IncomeSource
 	err = h.db.QueryRow(ctx, `
 		SELECT id, name, pay_schedule, schedule_detail, default_amount,
-		       is_active, created_at, updated_at
+		       is_active, effective_from, created_at, updated_at
 		FROM income_sources WHERE id = $1
 	`, id).Scan(&s.ID, &s.Name, &s.PaySchedule, &s.ScheduleDetail,
-		&s.DefaultAmount, &s.IsActive, &s.CreatedAt, &s.UpdatedAt)
+		&s.DefaultAmount, &s.IsActive, &s.EffectiveFrom, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "income source not found")
 		return
@@ -97,15 +98,26 @@ func (h *IncomeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse effective_from if provided
+	var effectiveFrom *time.Time
+	if req.EffectiveFrom != nil && *req.EffectiveFrom != "" {
+		parsed, err := time.ParseInLocation("2006-01-02", *req.EffectiveFrom, time.Local)
+		if err != nil {
+			models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "effective_from must be in YYYY-MM-DD format")
+			return
+		}
+		effectiveFrom = &parsed
+	}
+
 	var s models.IncomeSource
 	err := h.db.QueryRow(ctx, `
-		INSERT INTO income_sources (name, pay_schedule, schedule_detail, default_amount)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO income_sources (name, pay_schedule, schedule_detail, default_amount, effective_from)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, name, pay_schedule, schedule_detail, default_amount,
-		          is_active, created_at, updated_at
-	`, req.Name, req.PaySchedule, req.ScheduleDetail, req.DefaultAmount,
+		          is_active, effective_from, created_at, updated_at
+	`, req.Name, req.PaySchedule, req.ScheduleDetail, req.DefaultAmount, effectiveFrom,
 	).Scan(&s.ID, &s.Name, &s.PaySchedule, &s.ScheduleDetail,
-		&s.DefaultAmount, &s.IsActive, &s.CreatedAt, &s.UpdatedAt)
+		&s.DefaultAmount, &s.IsActive, &s.EffectiveFrom, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
@@ -158,6 +170,21 @@ func (h *IncomeHandler) Update(w http.ResponseWriter, r *http.Request) {
 		args = append(args, *req.IsActive)
 		argIdx++
 	}
+	if req.EffectiveFrom != nil {
+		if *req.EffectiveFrom == "" {
+			// Allow clearing effective_from by passing empty string
+			setClauses = append(setClauses, "effective_from = NULL")
+		} else {
+			parsed, err := time.ParseInLocation("2006-01-02", *req.EffectiveFrom, time.Local)
+			if err != nil {
+				models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "effective_from must be in YYYY-MM-DD format")
+				return
+			}
+			setClauses = append(setClauses, "effective_from = $"+strconv.Itoa(argIdx))
+			args = append(args, parsed)
+			argIdx++
+		}
+	}
 
 	if len(setClauses) == 0 {
 		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "no fields to update")
@@ -170,11 +197,11 @@ func (h *IncomeHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	query += `, updated_at = NOW() WHERE id = $1
 		RETURNING id, name, pay_schedule, schedule_detail, default_amount,
-		          is_active, created_at, updated_at`
+		          is_active, effective_from, created_at, updated_at`
 
 	var s models.IncomeSource
 	err = h.db.QueryRow(ctx, query, args...).Scan(&s.ID, &s.Name, &s.PaySchedule, &s.ScheduleDetail,
-		&s.DefaultAmount, &s.IsActive, &s.CreatedAt, &s.UpdatedAt)
+		&s.DefaultAmount, &s.IsActive, &s.EffectiveFrom, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "income source not found")
 		return

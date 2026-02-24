@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Lightbulb, TrendingUp, Calendar, ArrowRight, Check, CheckSquare, Square } from 'lucide-react';
 import { useBudgetStore } from '../../stores/budgetStore';
+import { formatShortDate, parseLocalDate } from '../../utils/date';
 import styles from './OptimizerView.module.css';
 
 interface Suggestion {
@@ -104,15 +105,12 @@ export function OptimizerView() {
     }
   };
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr + 'T00:00:00');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+  const formatDate = formatShortDate;
 
   const { data: surplusData, isLoading: surplusLoading } = useQuery({
     queryKey: ['surplus', dateRange.from],
     queryFn: async () => {
-      const year = new Date(dateRange.from).getFullYear();
+      const year = parseLocalDate(dateRange.from).getFullYear();
       const res = await fetch(`/api/v1/optimizer/surplus?from=${year}-01-01&to=${year}-12-31`);
       if (!res.ok) throw new Error('Failed to load surplus data');
       const json = await res.json();
