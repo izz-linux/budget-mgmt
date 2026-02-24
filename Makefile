@@ -66,4 +66,4 @@ test:
 clean:
 	rm -rf bin/
 	rm -rf frontend/dist/
-	docker-compose down -v --rmi 'all'
+	docker-compose down -v --rmi all
