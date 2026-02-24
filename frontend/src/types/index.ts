@@ -32,6 +32,7 @@ export interface IncomeSource {
   schedule_detail: Record<string, unknown>;
   default_amount: number | null;
   is_active: boolean;
+  effective_from: string | null;
   created_at: string;
   updated_at: string;
 }

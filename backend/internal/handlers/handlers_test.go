@@ -85,11 +85,11 @@ func TestIncomeCreate_Success(t *testing.T) {
 	defer mock.Close()
 
 	now := time.Now()
-	rows := pgxmock.NewRows([]string{"id", "name", "pay_schedule", "schedule_detail", "default_amount", "is_active", "created_at", "updated_at"}).
-		AddRow(1, "My Job", "biweekly", json.RawMessage(`{"weekday":5,"anchor_date":"2025-01-10"}`), float64Ptr(2500.0), true, now, now)
+	rows := pgxmock.NewRows([]string{"id", "name", "pay_schedule", "schedule_detail", "default_amount", "is_active", "effective_from", "created_at", "updated_at"}).
+		AddRow(1, "My Job", "biweekly", json.RawMessage(`{"weekday":5,"anchor_date":"2025-01-10"}`), float64Ptr(2500.0), true, (*time.Time)(nil), now, now)
 
 	mock.ExpectQuery("INSERT INTO income_sources").
-		WithArgs("My Job", "biweekly", json.RawMessage(`{"weekday":5,"anchor_date":"2025-01-10"}`), float64Ptr(2500.0)).
+		WithArgs("My Job", "biweekly", json.RawMessage(`{"weekday":5,"anchor_date":"2025-01-10"}`), float64Ptr(2500.0), (*time.Time)(nil)).
 		WillReturnRows(rows)
 
 	h := NewIncomeHandler(mock)
@@ -1499,11 +1499,11 @@ func TestIncomeCreate_OneTime_Success(t *testing.T) {
 	defer mock.Close()
 
 	now := time.Now()
-	rows := pgxmock.NewRows([]string{"id", "name", "pay_schedule", "schedule_detail", "default_amount", "is_active", "created_at", "updated_at"}).
-		AddRow(1, "Year-End Bonus", "one_time", json.RawMessage(`{"date":"2026-03-15"}`), float64Ptr(5000.0), true, now, now)
+	rows := pgxmock.NewRows([]string{"id", "name", "pay_schedule", "schedule_detail", "default_amount", "is_active", "effective_from", "created_at", "updated_at"}).
+		AddRow(1, "Year-End Bonus", "one_time", json.RawMessage(`{"date":"2026-03-15"}`), float64Ptr(5000.0), true, (*time.Time)(nil), now, now)
 
 	mock.ExpectQuery("INSERT INTO income_sources").
-		WithArgs("Year-End Bonus", "one_time", json.RawMessage(`{"date":"2026-03-15"}`), float64Ptr(5000.0)).
+		WithArgs("Year-End Bonus", "one_time", json.RawMessage(`{"date":"2026-03-15"}`), float64Ptr(5000.0), (*time.Time)(nil)).
 		WillReturnRows(rows)
 
 	h := NewIncomeHandler(mock)

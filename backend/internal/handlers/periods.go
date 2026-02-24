@@ -29,11 +29,12 @@ func (h *PeriodHandler) List(w http.ResponseWriter, r *http.Request) {
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
 	if from == "" || to == "" {
-		// Default: show 3 months from today
+		// Default: show 3 months from today (using local timezone)
 		now := time.Now()
 		from = now.Format("2006-01-02")
 		to = now.AddDate(0, 3, 0).Format("2006-01-02")
 	}
+	// Note: from/to are passed directly to SQL query which handles date comparison correctly
 
 	rows, err := h.db.Query(ctx, `
 		SELECT pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
@@ -82,19 +83,19 @@ func (h *PeriodHandler) Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fromDate, err := time.Parse("2006-01-02", req.From)
+	fromDate, err := time.ParseInLocation("2006-01-02", req.From, time.Local)
 	if err != nil {
 		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid from date")
 		return
 	}
-	toDate, err := time.Parse("2006-01-02", req.To)
+	toDate, err := time.ParseInLocation("2006-01-02", req.To, time.Local)
 	if err != nil {
 		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid to date")
 		return
 	}
 
 	// Get income sources
-	query := `SELECT id, name, pay_schedule, schedule_detail, default_amount, is_active, created_at, updated_at
+	query := `SELECT id, name, pay_schedule, schedule_detail, default_amount, is_active, effective_from, created_at, updated_at
 	          FROM income_sources WHERE is_active = true`
 	args := []interface{}{}
 	if len(req.SourceIDs) > 0 {
@@ -113,7 +114,7 @@ func (h *PeriodHandler) Generate(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s models.IncomeSource
 		if err := rows.Scan(&s.ID, &s.Name, &s.PaySchedule, &s.ScheduleDetail,
-			&s.DefaultAmount, &s.IsActive, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			&s.DefaultAmount, &s.IsActive, &s.EffectiveFrom, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			models.WriteError(w, http.StatusInternalServerError, "SCAN_ERROR", err.Error())
 			return
 		}
@@ -123,7 +124,13 @@ func (h *PeriodHandler) Generate(w http.ResponseWriter, r *http.Request) {
 	// Generate and insert periods
 	var created []models.PayPeriod
 	for _, source := range sources {
-		dates, err := h.generator.Generate(source, fromDate, toDate)
+		// Use effective_from as the start date if it's after the requested from date
+		effectiveFrom := fromDate
+		if source.EffectiveFrom != nil && source.EffectiveFrom.After(fromDate) {
+			effectiveFrom = *source.EffectiveFrom
+		}
+
+		dates, err := h.generator.Generate(source, effectiveFrom, toDate)
 		if err != nil {
 			models.WriteError(w, http.StatusInternalServerError, "GENERATION_ERROR", err.Error())
 			return

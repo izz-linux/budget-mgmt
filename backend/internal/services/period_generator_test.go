@@ -1438,9 +1438,11 @@ func TestGenerateSemiMonthly_AdjustForWeekends(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Feb 1 (Saturday) -> Jan 31 (Friday), but Jan 31 is before range
+		// Feb 1 (Saturday) -> Jan 31 (Friday). The original date (Feb 1) is in range,
+		// so the adjusted date is included even though it falls before 'from'.
 		// Feb 16 (Sunday) -> Feb 14 (Friday)
 		expected := []time.Time{
+			date(2025, time.January, 31),  // Feb 1 (Saturday) adjusted to Jan 31 (Friday)
 			date(2025, time.February, 14), // Feb 16 (Sunday) adjusted to Feb 14 (Friday)
 		}
 		assertDates(t, dates, expected)
@@ -1510,6 +1512,58 @@ func TestGenerateSemiMonthly_AdjustForWeekends(t *testing.T) {
 		expected := []time.Time{
 			date(2025, time.February, 1),  // Saturday, not adjusted
 			date(2025, time.February, 16), // Sunday, not adjusted
+		}
+		assertDates(t, dates, expected)
+	})
+
+	t.Run("March2026_15thAnd31st_EffectiveFromFriday", func(t *testing.T) {
+		// User reported issue: March 2026 with 15th and 31st pay days
+		// March 15, 2026 is a Sunday
+		// March 31, 2026 is a Tuesday
+		source := makeSource(t, "semimonthly", models.SemiMonthlySchedule{
+			Days:              []int{15, 31},
+			AdjustForWeekends: true,
+		})
+
+		// User sets effective_from to March 13 (the Friday that March 15 adjusts to)
+		from := date(2026, time.March, 13)
+		to := date(2026, time.March, 31)
+
+		dates, err := gen.Generate(source, from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// March 15 (Sunday) -> March 13 (Friday), original date (15) is in range, so included
+		// March 31 (Tuesday) -> stays March 31
+		expected := []time.Time{
+			date(2026, time.March, 13), // March 15 (Sunday) adjusted to March 13 (Friday)
+			date(2026, time.March, 31), // Tuesday, unchanged
+		}
+		assertDates(t, dates, expected)
+	})
+
+	t.Run("March2026_15thAnd31st_EffectiveFromSunday", func(t *testing.T) {
+		// Same as above but effective_from is on the actual pay day (Sunday)
+		source := makeSource(t, "semimonthly", models.SemiMonthlySchedule{
+			Days:              []int{15, 31},
+			AdjustForWeekends: true,
+		})
+
+		from := date(2026, time.March, 15) // Sunday
+		to := date(2026, time.March, 31)
+
+		dates, err := gen.Generate(source, from, to)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// March 15 (Sunday) is in range, adjusts to March 13
+		// The adjusted date (March 13) is BEFORE from (March 15), but the
+		// original date IS in range, so it should be included
+		expected := []time.Time{
+			date(2026, time.March, 13), // March 15 (Sunday) adjusted to March 13 (Friday)
+			date(2026, time.March, 31),
 		}
 		assertDates(t, dates, expected)
 	})

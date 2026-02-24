@@ -115,12 +115,20 @@ func (g *PeriodGenerator) generateSemiMonthly(detail json.RawMessage, from, to t
 			}
 			d := time.Date(year, month, actualDay, 0, 0, 0, 0, current.Location())
 
+			// Check if the original scheduled date is in range BEFORE adjusting.
+			// This ensures that if a weekend pay date adjusts to a Friday that falls
+			// before 'from', the period is still included (with the adjusted date).
+			originalInRange := !d.Before(from) && !d.After(to)
+
 			// Adjust for weekends: move to preceding Friday
 			if schedule.AdjustForWeekends {
 				d = adjustToWeekday(d)
 			}
 
-			if !d.Before(from) && !d.After(to) {
+			// Include if either:
+			// 1. Original date was in range (even if adjusted date falls before 'from'), or
+			// 2. Adjusted date is in range (to catch dates that adjust INTO the range)
+			if originalInRange || (!d.Before(from) && !d.After(to)) {
 				dates = append(dates, d)
 			}
 		}

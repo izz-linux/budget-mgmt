@@ -30,11 +30,11 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
     semi_day2: ((detail?.days as number[]) || [1, 16])[1],
     adjust_for_weekends: (detail?.adjust_for_weekends as boolean) ?? true,
     one_time_date: (detail?.date as string) || new Date().toISOString().split('T')[0],
-    start_date: new Date().toISOString().split('T')[0],
+    effective_from: source?.effective_from || new Date().toISOString().split('T')[0],
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: Partial<IncomeSource>) => incomeApi.create(data),
+    mutationFn: (data: Partial<IncomeSource> & { effective_from?: string }) => incomeApi.create(data),
     onSuccess: async (created) => {
       queryClient.invalidateQueries({ queryKey: ['income-sources'] });
       // Auto-generate pay periods
@@ -45,7 +45,8 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
         from = form.one_time_date;
         to = form.one_time_date;
       } else {
-        from = form.start_date || dateRange.from;
+        // Use effective_from as the start; backend will also enforce this
+        from = form.effective_from || dateRange.from;
         to = dateRange.to;
       }
       try {
@@ -87,12 +88,17 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = {
+    const payload: Partial<IncomeSource> & { effective_from?: string } = {
       name: form.name,
-      pay_schedule: form.pay_schedule,
+      pay_schedule: form.pay_schedule as IncomeSource['pay_schedule'],
       schedule_detail: buildScheduleDetail(),
       default_amount: form.default_amount ? Number(form.default_amount) : null,
     };
+
+    // Include effective_from for non-one-time schedules
+    if (form.pay_schedule !== 'one_time' && form.effective_from) {
+      payload.effective_from = form.effective_from;
+    }
 
     if (isEditing) {
       updateMutation.mutate({ id: source.id, data: payload });
@@ -219,13 +225,13 @@ export function IncomeForm({ source, onClose }: IncomeFormProps) {
             </div>
           )}
 
-          {!isEditing && form.pay_schedule !== 'one_time' && (
+          {form.pay_schedule !== 'one_time' && (
             <div className={styles.field}>
               <label>Start Date (generate periods from)</label>
               <input
                 type="date"
-                value={form.start_date}
-                onChange={(e) => set('start_date', e.target.value)}
+                value={form.effective_from}
+                onChange={(e) => set('effective_from', e.target.value)}
               />
             </div>
           )}
