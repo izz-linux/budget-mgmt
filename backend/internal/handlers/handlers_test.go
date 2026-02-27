@@ -803,17 +803,21 @@ func TestAutoAssign_MatchesBillsToPeriods(t *testing.T) {
 		AddRow(1, "Electric", float64Ptr(100.0), 15, "monthly", nil)
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
-	// Two periods: Feb 7 and Feb 21
+	// Two periods: Mar 7 and Mar 21 (use future dates)
 	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
-		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC)).
-		AddRow(11, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC))
+		AddRow(10, time.Date(2026, 3, 7, 0, 0, 0, 0, time.UTC)).
+		AddRow(11, time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC))
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// No existing assignments for the pre-fetch check
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
-	// Bill due on 15th should be assigned to period 10 (Feb 7, last period on or before 15th)
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
+
+	// Bill due on 15th should be assigned to period 10 (Mar 7, last period on or before 15th)
 	now := time.Now()
 	assignRow := pgxmock.NewRows([]string{
 		"id", "bill_id", "pay_period_id", "planned_amount", "forecast_amount",
@@ -826,7 +830,7 @@ func TestAutoAssign_MatchesBillsToPeriods(t *testing.T) {
 		WillReturnRows(assignRow)
 
 	h := NewAssignmentHandler(mock)
-	body := bytes.NewBufferString(`{"from":"2026-02-01","to":"2026-02-28"}`)
+	body := bytes.NewBufferString(`{"from":"2026-03-01","to":"2026-03-31"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
 	rr := httptest.NewRecorder()
 	h.AutoAssign(rr, req)
@@ -859,6 +863,10 @@ func TestAutoAssign_UsesFirstPeriodWhenNoneBeforeDueDate(t *testing.T) {
 	// No existing assignments for the pre-fetch check
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
 
 	// Should still assign to period 10 (first available in that month)
 	now := time.Now()
@@ -906,6 +914,10 @@ func TestAutoAssign_SkipsExistingAssignments(t *testing.T) {
 		AddRow(1, 10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC), false)
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
+
 	// No INSERT expected - the bill/month combo is already covered
 
 	h := NewAssignmentHandler(mock)
@@ -945,6 +957,10 @@ func TestAutoAssign_SkipsWhenBillMovedToDifferentPeriod(t *testing.T) {
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"}).
 		AddRow(1, 11, time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC), false)
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
 
 	// No INSERT expected — bill already has an assignment for Feb, even though it's on a different period
 
@@ -987,6 +1003,10 @@ func TestAutoAssign_BiweeklyBillWithAnchorDate(t *testing.T) {
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
+
 	// Biweekly from Jan 15: Jan 15, Jan 29, Feb 12, Feb 26
 	// Jan 15 -> period 11 (Jan 15), Jan 29 -> period 11 (Jan 15, last on or before Jan 29)
 	// Feb 12 -> period 12 (Feb 1, last on or before Feb 12), Feb 26 -> period 13 (Feb 15, last on or before Feb 26)
@@ -1028,14 +1048,18 @@ func TestAutoAssign_BiweeklyFallsBackWithoutAnchor(t *testing.T) {
 		AddRow(1, "Loan", float64Ptr(200.0), 15, "biweekly", nil)
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
-	// One period: Feb 7
+	// One period: Mar 7 (use future date)
 	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
-		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC))
+		AddRow(10, time.Date(2026, 3, 7, 0, 0, 0, 0, time.UTC))
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// No existing assignments
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
 
 	// Falls back to monthly: assigns to period 10
 	now := time.Now()
@@ -1050,7 +1074,7 @@ func TestAutoAssign_BiweeklyFallsBackWithoutAnchor(t *testing.T) {
 		WillReturnRows(assignRow)
 
 	h := NewAssignmentHandler(mock)
-	body := bytes.NewBufferString(`{"from":"2026-02-01","to":"2026-02-28"}`)
+	body := bytes.NewBufferString(`{"from":"2026-03-01","to":"2026-03-31"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
 	rr := httptest.NewRecorder()
 	h.AutoAssign(rr, req)
@@ -1087,6 +1111,10 @@ func TestAutoAssign_QuarterlyBillWithAnchorDate(t *testing.T) {
 	// No existing assignments
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
 
 	// Quarterly from Jan 15: Jan 15, Apr 15
 	// Jan 15 -> period 11, Apr 15 -> period 13
@@ -1138,6 +1166,10 @@ func TestAutoAssign_AnnualBillWithAnchorDate(t *testing.T) {
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
 
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
+
 	// Annual on Mar 1 -> period 11 (Mar 1)
 	now := time.Now()
 	assignRow := pgxmock.NewRows([]string{
@@ -1173,14 +1205,18 @@ func TestAutoAssign_QuarterlyFallsBackWithoutAnchor(t *testing.T) {
 		AddRow(1, "Insurance", float64Ptr(300.0), 15, "quarterly", nil)
 	mock.ExpectQuery("SELECT (.+) FROM bills").WillReturnRows(billRows)
 
-	// One period: Feb 7
+	// One period: Mar 7 (use future date)
 	periodRows := pgxmock.NewRows([]string{"id", "pay_date"}).
-		AddRow(10, time.Date(2026, 2, 7, 0, 0, 0, 0, time.UTC))
+		AddRow(10, time.Date(2026, 3, 7, 0, 0, 0, 0, time.UTC))
 	mock.ExpectQuery("SELECT pp.id, pp.pay_date FROM pay_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(periodRows)
 
 	// No existing assignments
 	existingRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id", "pay_date", "manually_moved"})
 	mock.ExpectQuery("SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(existingRows)
+
+	// No deleted bill+period combos
+	deletedRows := pgxmock.NewRows([]string{"bill_id", "pay_period_id"})
+	mock.ExpectQuery("SELECT dbp.bill_id, dbp.pay_period_id FROM deleted_bill_periods").WithArgs(pgxmock.AnyArg(), pgxmock.AnyArg()).WillReturnRows(deletedRows)
 
 	// Falls back to monthly: assigns to period 10
 	now := time.Now()
@@ -1195,7 +1231,7 @@ func TestAutoAssign_QuarterlyFallsBackWithoutAnchor(t *testing.T) {
 		WillReturnRows(assignRow)
 
 	h := NewAssignmentHandler(mock)
-	body := bytes.NewBufferString(`{"from":"2026-02-01","to":"2026-02-28"}`)
+	body := bytes.NewBufferString(`{"from":"2026-03-01","to":"2026-03-31"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assignments/auto-assign", body)
 	rr := httptest.NewRecorder()
 	h.AutoAssign(rr, req)
@@ -1349,9 +1385,20 @@ func TestAssignmentDelete_Success(t *testing.T) {
 	}
 	defer mock.Close()
 
+	// First query to get bill_id and pay_period_id
+	mock.ExpectQuery("SELECT bill_id, pay_period_id FROM bill_assignments").
+		WithArgs(5).
+		WillReturnRows(pgxmock.NewRows([]string{"bill_id", "pay_period_id"}).AddRow(1, 10))
+
+	// Then delete
 	mock.ExpectExec("DELETE FROM bill_assignments").
 		WithArgs(5).
 		WillReturnResult(pgxmock.NewResult("DELETE", 1))
+
+	// Then track the deletion
+	mock.ExpectExec("INSERT INTO deleted_bill_periods").
+		WithArgs(1, 10).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 
 	h := NewAssignmentHandler(mock)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/assignments/5", nil)
@@ -1377,9 +1424,10 @@ func TestAssignmentDelete_NotFound(t *testing.T) {
 	}
 	defer mock.Close()
 
-	mock.ExpectExec("DELETE FROM bill_assignments").
+	// Query returns no rows (assignment not found)
+	mock.ExpectQuery("SELECT bill_id, pay_period_id FROM bill_assignments").
 		WithArgs(999).
-		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+		WillReturnError(fmt.Errorf("no rows in result set"))
 
 	h := NewAssignmentHandler(mock)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/assignments/999", nil)
@@ -1403,6 +1451,12 @@ func TestAssignmentDelete_DBError(t *testing.T) {
 	}
 	defer mock.Close()
 
+	// First query succeeds
+	mock.ExpectQuery("SELECT bill_id, pay_period_id FROM bill_assignments").
+		WithArgs(1).
+		WillReturnRows(pgxmock.NewRows([]string{"bill_id", "pay_period_id"}).AddRow(1, 10))
+
+	// Delete fails
 	mock.ExpectExec("DELETE FROM bill_assignments").
 		WithArgs(1).
 		WillReturnError(fmt.Errorf("connection lost"))

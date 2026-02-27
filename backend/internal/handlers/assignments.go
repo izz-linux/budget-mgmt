@@ -217,15 +217,27 @@ func (h *AssignmentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tag, err := h.db.Exec(ctx, `DELETE FROM bill_assignments WHERE id = $1`, id)
+	// Get bill_id and pay_period_id before deleting so we can track the deletion
+	var billID, periodID int
+	err = h.db.QueryRow(ctx, `SELECT bill_id, pay_period_id FROM bill_assignments WHERE id = $1`, id).Scan(&billID, &periodID)
+	if err != nil {
+		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "assignment not found")
+		return
+	}
+
+	// Delete the assignment
+	_, err = h.db.Exec(ctx, `DELETE FROM bill_assignments WHERE id = $1`, id)
 	if err != nil {
 		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
-	if tag.RowsAffected() == 0 {
-		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "assignment not found")
-		return
-	}
+
+	// Track this deletion to prevent auto-assign from recreating it
+	_, _ = h.db.Exec(ctx, `
+		INSERT INTO deleted_bill_periods (bill_id, pay_period_id)
+		VALUES ($1, $2)
+		ON CONFLICT (bill_id, pay_period_id) DO NOTHING
+	`, billID, periodID)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -379,6 +391,12 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 	// Track which bills have been manually moved (skip them unless force=true)
 	manuallyMovedBills := make(map[billMonth]bool)
 
+	// Track explicitly deleted bill+period combos (never recreate these)
+	deletedPairs := make(map[billPeriod]bool)
+
+	// Get today's date for skipping past periods
+	today := time.Now().Truncate(24 * time.Hour)
+
 	existRows, err := h.db.Query(ctx, `
 		SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved
 		FROM bill_assignments ba
@@ -406,22 +424,52 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fetch deleted bill+period combos in range
+	deletedRows, err := h.db.Query(ctx, `
+		SELECT dbp.bill_id, dbp.pay_period_id
+		FROM deleted_bill_periods dbp
+		JOIN pay_periods pp ON pp.id = dbp.pay_period_id
+		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2
+	`, req.From, req.To)
+	if err != nil {
+		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	defer deletedRows.Close()
+
+	for deletedRows.Next() {
+		var billID, periodID int
+		if err := deletedRows.Scan(&billID, &periodID); err != nil {
+			continue
+		}
+		deletedPairs[billPeriod{billID, periodID}] = true
+	}
+
 	// Helper: find the best period for a due date (last period on or before it)
+	// Only considers future periods (pay_date >= today) to avoid retroactive assignments
 	findBestPeriod := func(dueDate time.Time) int {
 		best := -1
 		for i := len(periods) - 1; i >= 0; i-- {
+			// Skip past periods
+			if periods[i].PayDate.Before(today) {
+				continue
+			}
 			if !periods[i].PayDate.After(dueDate) {
 				best = i
 				break
 			}
 		}
 		if best < 0 && len(periods) > 0 {
-			// No period before due date; use earliest period in or after due date's month
+			// No period before due date; use earliest future period in or after due date's month
 			year, month := dueDate.Year(), dueDate.Month()
 			idx := sort.Search(len(periods), func(i int) bool {
 				return periods[i].PayDate.Year() > year ||
 					(periods[i].PayDate.Year() == year && periods[i].PayDate.Month() >= month)
 			})
+			// Find the first future period at or after idx
+			for idx < len(periods) && periods[idx].PayDate.Before(today) {
+				idx++
+			}
 			if idx < len(periods) {
 				best = idx
 			}
@@ -493,7 +541,8 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			idx := findBestPeriod(cur)
 			if idx >= 0 {
 				pid := periods[idx].ID
-				if !existingPairs[billPeriod{bill.ID, pid}] {
+				bp := billPeriod{bill.ID, pid}
+				if !existingPairs[bp] && !deletedPairs[bp] {
 					amt := 0.0
 					if bill.DefaultAmount != nil {
 						amt = *bill.DefaultAmount
@@ -505,6 +554,10 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for pid, amount := range periodAmounts {
+			bp := billPeriod{bill.ID, pid}
+			if deletedPairs[bp] {
+				continue
+			}
 			a := amount
 			if result := insertAssignment(bill.ID, pid, &a); result != nil {
 				created = append(created, *result)
@@ -536,7 +589,8 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 				idx := findBestPeriod(cur)
 				if idx >= 0 {
 					pid := periods[idx].ID
-					if !existingPairs[billPeriod{bill.ID, pid}] {
+					bp := billPeriod{bill.ID, pid}
+					if !existingPairs[bp] && !deletedPairs[bp] {
 						if a := insertAssignment(bill.ID, pid, bill.DefaultAmount); a != nil {
 							created = append(created, *a)
 						}
@@ -571,7 +625,8 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 				idx := findBestPeriod(cur)
 				if idx >= 0 {
 					pid := periods[idx].ID
-					if !existingPairs[billPeriod{bill.ID, pid}] {
+					bp := billPeriod{bill.ID, pid}
+					if !existingPairs[bp] && !deletedPairs[bp] {
 						if a := insertAssignment(bill.ID, pid, bill.DefaultAmount); a != nil {
 							created = append(created, *a)
 						}
@@ -617,8 +672,13 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 
 			idx := findBestPeriod(dueDate)
 			if idx >= 0 {
-				if a := insertAssignment(bill.ID, periods[idx].ID, bill.DefaultAmount); a != nil {
-					created = append(created, *a)
+				pid := periods[idx].ID
+				bp := billPeriod{bill.ID, pid}
+				// Skip if this bill+period was explicitly deleted
+				if !deletedPairs[bp] {
+					if a := insertAssignment(bill.ID, pid, bill.DefaultAmount); a != nil {
+						created = append(created, *a)
+					}
 				}
 			}
 
