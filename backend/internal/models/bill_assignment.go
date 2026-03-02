@@ -3,20 +3,22 @@ package models
 import "time"
 
 type BillAssignment struct {
-	ID              int       `json:"id"`
-	BillID          int       `json:"bill_id"`
-	PayPeriodID     int       `json:"pay_period_id"`
-	PlannedAmount   *float64  `json:"planned_amount"`
-	ForecastAmount  *float64  `json:"forecast_amount"`
-	ActualAmount    *float64  `json:"actual_amount"`
-	Status          string    `json:"status"` // pending, paid, deferred, uncertain, skipped
-	DeferredToID    *int      `json:"deferred_to_id"`
-	IsExtra         bool      `json:"is_extra"`
-	ExtraName       string    `json:"extra_name,omitempty"`
-	Notes           string    `json:"notes"`
-	ManuallyMoved   bool      `json:"manually_moved"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID                      int       `json:"id"`
+	BillID                  int       `json:"bill_id"`
+	PayPeriodID             int       `json:"pay_period_id"`
+	PlannedAmount           *float64  `json:"planned_amount"`
+	ForecastAmount          *float64  `json:"forecast_amount"`
+	ActualAmount            *float64  `json:"actual_amount"`
+	Status                  string    `json:"status"` // pending, paid, deferred, uncertain, skipped
+	DeferredToID            *int      `json:"deferred_to_id"`
+	IsExtra                 bool      `json:"is_extra"`
+	ExtraName               string    `json:"extra_name,omitempty"`
+	Notes                   string    `json:"notes"`
+	ManuallyMoved           bool      `json:"manually_moved"`
+	IsSinkingFund           bool      `json:"is_sinking_fund"`
+	SinkingFundForPeriodID  *int      `json:"sinking_fund_for_period_id,omitempty"`
+	CreatedAt               time.Time `json:"created_at"`
+	UpdatedAt               time.Time `json:"updated_at"`
 
 	// Joined fields
 	BillName        string `json:"bill_name,omitempty"`

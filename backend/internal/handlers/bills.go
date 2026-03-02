@@ -24,7 +24,8 @@ func (h *BillHandler) List(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT b.id, b.name, b.default_amount, b.due_day, b.recurrence,
 		       b.recurrence_detail, b.is_autopay, COALESCE(b.category, ''), COALESCE(b.notes, ''),
-		       b.is_active, b.sort_order, b.created_at, b.updated_at,
+		       b.is_active, b.sort_order, b.sinking_fund_enabled, b.sinking_fund_periods,
+		       b.created_at, b.updated_at,
 		       cc.id, cc.card_label, cc.statement_day, cc.due_day, cc.issuer, cc.created_at
 		FROM bills b
 		LEFT JOIN credit_cards cc ON cc.bill_id = b.id
@@ -52,7 +53,8 @@ func (h *BillHandler) List(w http.ResponseWriter, r *http.Request) {
 		err := rows.Scan(
 			&b.ID, &b.Name, &b.DefaultAmount, &b.DueDay, &b.Recurrence,
 			&b.RecurrenceDetail, &b.IsAutopay, &b.Category, &b.Notes,
-			&b.IsActive, &b.SortOrder, &b.CreatedAt, &b.UpdatedAt,
+			&b.IsActive, &b.SortOrder, &b.SinkingFundEnabled, &b.SinkingFundPeriods,
+			&b.CreatedAt, &b.UpdatedAt,
 			&ccID, &ccLabel, &ccStatementDay, &ccDueDay, &ccIssuer, &ccCreatedAt,
 		)
 		if err != nil {
@@ -93,12 +95,14 @@ func (h *BillHandler) Get(w http.ResponseWriter, r *http.Request) {
 	var b models.Bill
 	err = h.db.QueryRow(ctx, `
 		SELECT id, name, default_amount, due_day, recurrence, recurrence_detail,
-		       is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order, created_at, updated_at
+		       is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order,
+		       sinking_fund_enabled, sinking_fund_periods, created_at, updated_at
 		FROM bills WHERE id = $1
 	`, id).Scan(
 		&b.ID, &b.Name, &b.DefaultAmount, &b.DueDay, &b.Recurrence,
 		&b.RecurrenceDetail, &b.IsAutopay, &b.Category, &b.Notes,
-		&b.IsActive, &b.SortOrder, &b.CreatedAt, &b.UpdatedAt,
+		&b.IsActive, &b.SortOrder, &b.SinkingFundEnabled, &b.SinkingFundPeriods,
+		&b.CreatedAt, &b.UpdatedAt,
 	)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "bill not found")
@@ -140,13 +144,15 @@ func (h *BillHandler) Create(w http.ResponseWriter, r *http.Request) {
 		                   is_autopay, category, notes, sort_order)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, name, default_amount, due_day, recurrence, recurrence_detail,
-		          is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order, created_at, updated_at
+		          is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order,
+		          sinking_fund_enabled, sinking_fund_periods, created_at, updated_at
 	`, req.Name, req.DefaultAmount, req.DueDay, req.Recurrence, req.RecurrenceDetail,
 		req.IsAutopay, req.Category, req.Notes, req.SortOrder,
 	).Scan(
 		&b.ID, &b.Name, &b.DefaultAmount, &b.DueDay, &b.Recurrence,
 		&b.RecurrenceDetail, &b.IsAutopay, &b.Category, &b.Notes,
-		&b.IsActive, &b.SortOrder, &b.CreatedAt, &b.UpdatedAt,
+		&b.IsActive, &b.SortOrder, &b.SinkingFundEnabled, &b.SinkingFundPeriods,
+		&b.CreatedAt, &b.UpdatedAt,
 	)
 	if err != nil {
 		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
@@ -200,17 +206,21 @@ func (h *BillHandler) Update(w http.ResponseWriter, r *http.Request) {
 			notes = COALESCE($9, notes),
 			is_active = COALESCE($10, is_active),
 			sort_order = COALESCE($11, sort_order),
+			sinking_fund_enabled = COALESCE($12, sinking_fund_enabled),
+			sinking_fund_periods = COALESCE($13, sinking_fund_periods),
 			updated_at = NOW()
 		WHERE id = $1
 		RETURNING id, name, default_amount, due_day, recurrence, recurrence_detail,
-		          is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order, created_at, updated_at
+		          is_autopay, COALESCE(category, ''), COALESCE(notes, ''), is_active, sort_order,
+		          sinking_fund_enabled, sinking_fund_periods, created_at, updated_at
 	`, id, req.Name, req.DefaultAmount, req.DueDay, req.Recurrence,
 		req.RecurrenceDetail, req.IsAutopay, req.Category, req.Notes,
-		req.IsActive, req.SortOrder,
+		req.IsActive, req.SortOrder, req.SinkingFundEnabled, req.SinkingFundPeriods,
 	).Scan(
 		&b.ID, &b.Name, &b.DefaultAmount, &b.DueDay, &b.Recurrence,
 		&b.RecurrenceDetail, &b.IsAutopay, &b.Category, &b.Notes,
-		&b.IsActive, &b.SortOrder, &b.CreatedAt, &b.UpdatedAt,
+		&b.IsActive, &b.SortOrder, &b.SinkingFundEnabled, &b.SinkingFundPeriods,
+		&b.CreatedAt, &b.UpdatedAt,
 	)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "bill not found")

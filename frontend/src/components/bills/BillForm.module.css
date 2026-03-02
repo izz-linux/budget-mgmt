@@ -146,3 +146,34 @@
 .submitBtn:hover {
   background: var(--color-primary-hover);
 }
+
+/* Sinking fund section */
+.sfSection {
+  padding: 12px;
+  background: color-mix(in srgb, #d97706 8%, transparent);
+  border: 1px solid color-mix(in srgb, #d97706 40%, transparent);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sfControls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sfBtn {
+  align-self: flex-start;
+  padding: 7px 14px;
+  background: #d97706;
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+}
+.sfBtn:hover {
+  background: #b45309;
+}

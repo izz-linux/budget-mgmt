@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: budget-api
-          image: izznoland/budget-api:v0.9.0
+          image: izznoland/budget-api:v0.14.3
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

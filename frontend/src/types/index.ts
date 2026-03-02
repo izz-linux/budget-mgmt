@@ -10,6 +10,8 @@ export interface Bill {
   notes: string;
   is_active: boolean;
   sort_order: number;
+  sinking_fund_enabled: boolean;
+  sinking_fund_periods: number | null;
   created_at: string;
   updated_at: string;
   credit_card?: CreditCard;
@@ -63,9 +65,25 @@ export interface BillAssignment {
   extra_name: string;
   notes: string;
   manually_moved: boolean;
+  is_sinking_fund: boolean;
+  sinking_fund_for_period_id: number | null;
   created_at: string;
   updated_at: string;
   bill_name?: string;
+}
+
+export interface SinkingFundInstallment {
+  period_id: number;
+  pay_date: string;
+  surplus: number;
+  amount: number;
+}
+
+export interface SinkingFundPlan {
+  installments: SinkingFundInstallment[];
+  total_funded: number;
+  total_needed: number;
+  shortfall: number;
 }
 
 export interface BudgetGridData {
