@@ -272,7 +272,10 @@ export function BudgetGrid() {
           {bills.map((bill) => {
             const assignment = getAssignment(bill.id, period.id);
             return (
-              <div key={bill.id} className={styles.mobileBillRow}>
+              <div
+                key={bill.id}
+                className={`${styles.mobileBillRow} ${assignment?.is_sinking_fund ? styles.sfMobileRow : ''}`}
+              >
                 <div className={styles.mobileBillName}>
                   <span>{bill.name}</span>
                   {bill.due_day && <span className={styles.dueTag}>Due {ordinal(bill.due_day)}</span>}
@@ -280,14 +283,19 @@ export function BudgetGrid() {
                 <div className={styles.mobileBillRight}>
                   {assignment ? (
                     <>
+                      {assignment.is_sinking_fund && (
+                        <span className={styles.sfBadge}>SF</span>
+                      )}
                       <span className={styles.amount}>{formatAmount(assignment.planned_amount)}</span>
-                      <button
-                        className={styles.statusBtn}
-                        style={{ color: STATUS_COLORS[assignment.status] }}
-                        onClick={() => handleStatusToggle(assignment)}
-                      >
-                        {STATUS_LABELS[assignment.status]}
-                      </button>
+                      {!assignment.is_sinking_fund && (
+                        <button
+                          className={styles.statusBtn}
+                          style={{ color: STATUS_COLORS[assignment.status] }}
+                          onClick={() => handleStatusToggle(assignment)}
+                        >
+                          {STATUS_LABELS[assignment.status]}
+                        </button>
+                      )}
                       <button
                         className={styles.removeBtn}
                         onClick={() => handleDeleteAssignment(assignment)}
@@ -461,7 +469,10 @@ export function BudgetGrid() {
                     const isEditing = editingCell === key;
 
                     return (
-                      <td key={period.id} className={styles.cell}>
+                      <td
+                        key={period.id}
+                        className={`${styles.cell} ${assignment?.is_sinking_fund ? styles.sfCell : ''}`}
+                      >
                         {isEditing ? (
                           <input
                             className={styles.cellInput}
@@ -477,17 +488,34 @@ export function BudgetGrid() {
                             autoFocus
                           />
                         ) : assignment ? (
-                          <div className={styles.cellContent} onClick={() => handleCellClick(bill, period)}>
+                          <div
+                            className={styles.cellContent}
+                            onClick={() => !assignment.is_sinking_fund && handleCellClick(bill, period)}
+                            title={
+                              assignment.is_sinking_fund
+                                ? `Sinking fund installment for ${bill.name}${
+                                    assignment.sinking_fund_for_period_id
+                                      ? ` — target period #${assignment.sinking_fund_for_period_id}`
+                                      : ''
+                                  }`
+                                : undefined
+                            }
+                          >
+                            {assignment.is_sinking_fund && (
+                              <span className={styles.sfLabel}>SF →</span>
+                            )}
                             <span className={styles.cellAmount}>{formatAmount(assignment.planned_amount)}</span>
                             <div className={styles.cellActions}>
-                              <button
-                                className={styles.cellStatus}
-                                style={{ color: STATUS_COLORS[assignment.status] }}
-                                onClick={(e) => { e.stopPropagation(); handleStatusToggle(assignment); }}
-                                title={`Click to change status (${assignment.status})`}
-                              >
-                                {STATUS_LABELS[assignment.status]}
-                              </button>
+                              {!assignment.is_sinking_fund && (
+                                <button
+                                  className={styles.cellStatus}
+                                  style={{ color: STATUS_COLORS[assignment.status] }}
+                                  onClick={(e) => { e.stopPropagation(); handleStatusToggle(assignment); }}
+                                  title={`Click to change status (${assignment.status})`}
+                                >
+                                  {STATUS_LABELS[assignment.status]}
+                                </button>
+                              )}
                               <button
                                 className={styles.cellRemove}
                                 onClick={(e) => { e.stopPropagation(); handleDeleteAssignment(assignment); }}

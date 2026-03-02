@@ -163,7 +163,8 @@ func (h *OptimizerHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		`, billID, move.ToPeriodID, plannedAmount).Scan(
 			&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 			&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-			&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt,
+			&a.Notes, &a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
+			&a.CreatedAt, &a.UpdatedAt,
 		)
 		if err != nil {
 			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())

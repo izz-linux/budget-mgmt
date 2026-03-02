@@ -51,6 +51,7 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 	importH := handlers.NewImportHandler(db)
 	optimizerH := handlers.NewOptimizerHandler(db)
 	dashboardH := handlers.NewDashboardHandler(db)
+	sinkingFundH := handlers.NewSinkingFundHandler(db)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Protect data routes with auth middleware
@@ -63,6 +64,11 @@ func New(db *pgxpool.Pool, cfg *config.Config) http.Handler {
 		r.Put("/bills/{id}", billH.Update)
 		r.Delete("/bills/{id}", billH.Delete)
 		r.Patch("/bills/reorder", billH.Reorder)
+
+		// Sinking fund
+		r.Post("/bills/{id}/sinking-fund/plan", sinkingFundH.Plan)
+		r.Post("/bills/{id}/sinking-fund/apply", sinkingFundH.Apply)
+		r.Delete("/bills/{id}/sinking-fund", sinkingFundH.Clear)
 
 		// Income sources
 		r.Get("/income-sources", incomeH.List)

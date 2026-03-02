@@ -5,6 +5,7 @@ import { billsApi } from '../../api/bills';
 import { assignmentsApi } from '../../api/assignments';
 import { useBudgetStore } from '../../stores/budgetStore';
 import type { Bill } from '../../types';
+import { SinkingFundModal } from './SinkingFundModal';
 import styles from './BillForm.module.css';
 
 interface BillFormProps {
@@ -34,7 +35,12 @@ export function BillForm({ bill, onClose }: BillFormProps) {
     cc_statement_day: bill?.credit_card?.statement_day ?? '',
     cc_due_day: bill?.credit_card?.due_day ?? '',
     cc_issuer: bill?.credit_card?.issuer || '',
+    // Sinking fund fields
+    sinking_fund_enabled: bill?.sinking_fund_enabled || false,
+    sinking_fund_periods: bill?.sinking_fund_periods ?? 6,
   });
+
+  const [showSinkingFundModal, setShowSinkingFundModal] = useState(false);
 
   const createMutation = useMutation({
     mutationFn: (data: Parameters<typeof billsApi.create>[0]) => billsApi.create(data),
@@ -77,6 +83,10 @@ export function BillForm({ bill, onClose }: BillFormProps) {
       is_autopay: form.is_autopay,
       category: form.category,
       notes: form.notes,
+      sinking_fund_enabled: form.sinking_fund_enabled,
+      sinking_fund_periods: form.sinking_fund_enabled
+        ? Number(form.sinking_fund_periods) || null
+        : null,
     };
 
     if (form.is_credit_card) {
@@ -99,6 +109,7 @@ export function BillForm({ bill, onClose }: BillFormProps) {
     setForm((prev) => ({ ...prev, [field]: value }));
 
   return (
+    <>
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.modalHeader}>
@@ -260,6 +271,44 @@ export function BillForm({ bill, onClose }: BillFormProps) {
             />
           </div>
 
+          <div className={styles.sfSection}>
+            <div className={styles.checkRow}>
+              <label className={styles.checkbox}>
+                <input
+                  type="checkbox"
+                  checked={form.sinking_fund_enabled}
+                  onChange={(e) => set('sinking_fund_enabled', e.target.checked)}
+                />
+                Sinking fund
+              </label>
+            </div>
+
+            {form.sinking_fund_enabled && (
+              <div className={styles.sfControls}>
+                <div className={styles.field}>
+                  <label>Spread over N periods</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="24"
+                    value={form.sinking_fund_periods}
+                    onChange={(e) => set('sinking_fund_periods', e.target.value)}
+                    placeholder="e.g. 6"
+                  />
+                </div>
+                {isEditing && (
+                  <button
+                    type="button"
+                    className={styles.sfBtn}
+                    onClick={() => setShowSinkingFundModal(true)}
+                  >
+                    Generate Sinking Fund
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className={styles.formActions}>
             <button type="button" className={styles.cancelBtn} onClick={onClose}>
               Cancel
@@ -271,5 +320,15 @@ export function BillForm({ bill, onClose }: BillFormProps) {
         </form>
       </div>
     </div>
+
+    {showSinkingFundModal && bill && (
+      <SinkingFundModal
+        billId={bill.id}
+        billName={bill.name}
+        defaultNumPeriods={form.sinking_fund_periods ? Number(form.sinking_fund_periods) : null}
+        onClose={() => setShowSinkingFundModal(false)}
+      />
+    )}
+  </>
   );
 }

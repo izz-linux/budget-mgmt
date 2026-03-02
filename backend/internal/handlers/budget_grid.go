@@ -37,7 +37,8 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 	billRows, err := h.db.Query(ctx, `
 		SELECT b.id, b.name, b.default_amount, b.due_day, b.recurrence,
 		       b.recurrence_detail, b.is_autopay, COALESCE(b.category, ''), COALESCE(b.notes, ''),
-		       b.is_active, b.sort_order, b.created_at, b.updated_at,
+		       b.is_active, b.sort_order, b.sinking_fund_enabled, b.sinking_fund_periods,
+		       b.created_at, b.updated_at,
 		       cc.id, cc.card_label, cc.statement_day, cc.due_day, cc.issuer
 		FROM bills b
 		LEFT JOIN credit_cards cc ON cc.bill_id = b.id
@@ -60,7 +61,8 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 		err := billRows.Scan(
 			&b.ID, &b.Name, &b.DefaultAmount, &b.DueDay, &b.Recurrence,
 			&b.RecurrenceDetail, &b.IsAutopay, &b.Category, &b.Notes,
-			&b.IsActive, &b.SortOrder, &b.CreatedAt, &b.UpdatedAt,
+			&b.IsActive, &b.SortOrder, &b.SinkingFundEnabled, &b.SinkingFundPeriods,
+			&b.CreatedAt, &b.UpdatedAt,
 			&ccID, &ccLabel, &ccStatementDay, &ccDueDay, &ccIssuer,
 		)
 		if err != nil {
@@ -127,7 +129,8 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 			SELECT ba.id, ba.bill_id, ba.pay_period_id, ba.planned_amount,
 			       ba.forecast_amount, ba.actual_amount, ba.status, ba.deferred_to_id,
 			       ba.is_extra, COALESCE(ba.extra_name, ''), COALESCE(ba.notes, ''),
-			       ba.manually_moved, ba.created_at, ba.updated_at,
+			       ba.manually_moved, ba.is_sinking_fund, ba.sinking_fund_for_period_id,
+			       ba.created_at, ba.updated_at,
 			       b.name
 			FROM bill_assignments ba
 			JOIN bills b ON b.id = ba.bill_id
@@ -145,7 +148,8 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 			err := assignRows.Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount,
 				&a.ForecastAmount, &a.ActualAmount, &a.Status, &a.DeferredToID,
 				&a.IsExtra, &a.ExtraName, &a.Notes,
-				&a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt,
+				&a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
+				&a.CreatedAt, &a.UpdatedAt,
 				&a.BillName)
 			if err != nil {
 				models.WriteError(w, http.StatusInternalServerError, "SCAN_ERROR", err.Error())

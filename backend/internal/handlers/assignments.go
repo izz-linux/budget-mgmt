@@ -23,17 +23,19 @@ func NewAssignmentHandler(db DBTX) *AssignmentHandler {
 const assignmentSelectCols = `ba.id, ba.bill_id, ba.pay_period_id, ba.planned_amount,
 		       ba.forecast_amount, ba.actual_amount, ba.status, ba.deferred_to_id,
 		       ba.is_extra, COALESCE(ba.extra_name, ''), COALESCE(ba.notes, ''),
-		       ba.manually_moved, ba.created_at, ba.updated_at`
+		       ba.manually_moved, ba.is_sinking_fund, ba.sinking_fund_for_period_id,
+		       ba.created_at, ba.updated_at`
 
 const assignmentReturnCols = `id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
 		          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''),
-		          manually_moved, created_at, updated_at`
+		          manually_moved, is_sinking_fund, sinking_fund_for_period_id, created_at, updated_at`
 
 func scanAssignment(scanner interface{ Scan(dest ...interface{}) error }, a *models.BillAssignment) error {
 	return scanner.Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount,
 		&a.ForecastAmount, &a.ActualAmount, &a.Status, &a.DeferredToID,
 		&a.IsExtra, &a.ExtraName, &a.Notes,
-		&a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt)
+		&a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
+		&a.CreatedAt, &a.UpdatedAt)
 }
 
 func (h *AssignmentHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +84,8 @@ func (h *AssignmentHandler) List(w http.ResponseWriter, r *http.Request) {
 		err := rows.Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount,
 			&a.ForecastAmount, &a.ActualAmount, &a.Status, &a.DeferredToID,
 			&a.IsExtra, &a.ExtraName, &a.Notes,
-			&a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt,
+			&a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
+			&a.CreatedAt, &a.UpdatedAt,
 			&a.BillName)
 		if err != nil {
 			models.WriteError(w, http.StatusInternalServerError, "SCAN_ERROR", err.Error())
@@ -119,7 +122,8 @@ func (h *AssignmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.ActualAmount, req.Status, req.IsExtra, req.ExtraName, req.Notes,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 		&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-		&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt)
+		&a.Notes, &a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
+		&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
@@ -158,7 +162,8 @@ func (h *AssignmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		req.Status, req.DeferredToID, req.Notes,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 		&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-		&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt)
+		&a.Notes, &a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
+		&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "assignment not found")
 		return
@@ -200,7 +205,8 @@ func (h *AssignmentHandler) UpdateStatus(w http.ResponseWriter, r *http.Request)
 	`, id, req.Status, req.DeferredToID,
 	).Scan(&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 		&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-		&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt)
+		&a.Notes, &a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
+		&a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "assignment not found")
 		return
@@ -488,7 +494,8 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		`, billID, periodID, amount).Scan(
 			&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 			&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
-			&a.Notes, &a.ManuallyMoved, &a.CreatedAt, &a.UpdatedAt,
+			&a.Notes, &a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
+		&a.CreatedAt, &a.UpdatedAt,
 		)
 		if err != nil {
 			return nil // ON CONFLICT DO NOTHING or other error
