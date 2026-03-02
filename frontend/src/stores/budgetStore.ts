@@ -13,7 +13,8 @@ interface BudgetState {
 function getDefaultRange(): DateRange {
   const now = new Date();
   const from = new Date(now);
-  from.setDate(1); // start of month
+  from.setDate(1);
+  from.setMonth(from.getMonth() - 1); // start from previous month so recent past periods are included
   const to = new Date(now);
   to.setMonth(to.getMonth() + 3);
   return {

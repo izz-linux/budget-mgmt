@@ -8,7 +8,7 @@ import { useBudgetStore } from '../../stores/budgetStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { Bill, PayPeriod, BillAssignment } from '../../types';
 import { ordinal } from '../../utils/ordinal';
-import { formatShortDate, formatMonthYear } from '../../utils/date';
+import { formatShortDate, formatMonthYear, parseLocalDate } from '../../utils/date';
 import styles from './BudgetGrid.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -121,7 +121,27 @@ export function BudgetGrid() {
     }
   };
 
-  // Reset period index when periods change
+  // Auto-select the current active period when the date range changes or on first load.
+  // "Current" = most recent period whose pay_date is <= today.
+  // This prevents auto-progressing to a future period before it arrives.
+  const autoSelectRanRef = useRef('');
+  useEffect(() => {
+    if (periods.length === 0 || autoSelectRanRef.current === rangeKey) return;
+    autoSelectRanRef.current = rangeKey;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let currentIdx = 0;
+    for (let i = 0; i < periods.length; i++) {
+      if (parseLocalDate(periods[i].pay_date) <= today) {
+        currentIdx = i;
+      } else {
+        break;
+      }
+    }
+    setSelectedPeriodIndex(currentIdx);
+  }, [periods, rangeKey, setSelectedPeriodIndex]);
+
+  // Clamp period index if periods shrink
   useEffect(() => {
     if (selectedPeriodIndex >= periods.length) {
       setSelectedPeriodIndex(Math.max(0, periods.length - 1));
