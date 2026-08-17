@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code Review — 2026-08-17</title>
+<style>
+  :root {
+    color-scheme: light dark;
+
+    --bg:          #ffffff;
+    --bg-sunken:   #f5f6f8;
+    --bg-raised:   #ffffff;
+    --border:      #e0e3e9;
+    --border-soft: #eceef2;
+    --text:        #1b1f26;
+    --text-dim:    #5c6472;
+    --text-faint:  #858d9b;
+
+    --crit:        #c0392b;
+    --crit-bg:     #fdf0ee;
+    --corr:        #b0700a;
+    --corr-bg:     #fdf6e8;
+    --test:        #1f6f4a;
+    --test-bg:     #edf7f1;
+    --note:        #3f5fa8;
+    --note-bg:     #eef2fb;
+
+    --code-bg:     #f2f3f6;
+    --code-text:   #24292f;
+
+    --radius:      10px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:          #14171c;
+      --bg-sunken:   #0f1216;
+      --bg-raised:   #1b1f26;
+      --border:      #2c323c;
+      --border-soft: #232830;
+      --text:        #e6e9ee;
+      --text-dim:    #a3acbb;
+      --text-faint:  #78818f;
+
+      --crit:        #f0857a;
+      --crit-bg:     #2a1a19;
+      --corr:        #e0b054;
+      --corr-bg:     #2a2418;
+      --test:        #6cc296;
+      --test-bg:     #16261e;
+      --note:        #8fabe8;
+      --note-bg:     #1a1f2b;
+
+      --code-bg:     #22272f;
+      --code-text:   #d7dce3;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg-sunken);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  header.page {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 30px;
+    margin-bottom: 24px;
+  }
+  header.page h1 {
+    margin: 0 0 6px;
+    font-size: 1.75rem;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+  }
+  header.page .meta {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    margin: 0;
+  }
+
+  .banner {
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    margin-bottom: 28px;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--note);
+    background: var(--note-bg);
+  }
+  .banner h2 {
+    margin: 0 0 8px;
+    font-size: 1rem;
+    letter-spacing: 0.01em;
+  }
+  .banner p { margin: 0 0 10px; font-size: 0.94rem; }
+  .banner p:last-child { margin-bottom: 0; }
+  .banner ul { margin: 8px 0 10px; padding-left: 22px; }
+  .banner li { font-size: 0.9rem; }
+
+  section.group { margin-bottom: 40px; }
+
+  h2.group-title {
+    font-size: 1.15rem;
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    letter-spacing: -0.01em;
+  }
+  .pill {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.crit { color: var(--crit); background: var(--crit-bg); border: 1px solid var(--crit); }
+  .pill.corr { color: var(--corr); background: var(--corr-bg); border: 1px solid var(--corr); }
+  .pill.test { color: var(--test); background: var(--test-bg); border: 1px solid var(--test); }
+  .pill.note { color: var(--note); background: var(--note-bg); border: 1px solid var(--note); }
+
+  .group-desc {
+    color: var(--text-dim);
+    font-size: 0.92rem;
+    margin: 0 0 18px;
+  }
+
+  article.fix {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    margin-bottom: 14px;
+  }
+  article.fix > h3 {
+    margin: 0 0 4px;
+    font-size: 1.02rem;
+    line-height: 1.4;
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+  .num {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-faint);
+    flex: 0 0 auto;
+    padding-top: 2px;
+  }
+  .loc {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin: 0 0 14px 28px;
+    word-break: break-word;
+  }
+
+  dl { margin: 0 0 0 28px; }
+  dt {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-top: 12px;
+  }
+  dt:first-child { margin-top: 0; }
+  dd {
+    margin: 3px 0 0;
+    font-size: 0.94rem;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 1.5px 5px;
+    border-radius: 4px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    margin: 8px 0 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    margin-top: 6px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+  }
+  th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    font-weight: 700;
+  }
+  .scroll-x { overflow-x: auto; }
+
+  ul.tight { margin: 4px 0 0; padding-left: 20px; }
+  ul.tight li { margin-bottom: 5px; font-size: 0.94rem; }
+
+  .verify {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+  }
+  .verify ul { list-style: none; margin: 0; padding: 0; }
+  .verify li {
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border-soft);
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .verify li:last-child { border-bottom: none; }
+  .pass { color: var(--test); font-weight: 700; white-space: nowrap; }
+
+  article.carve {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--note);
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    margin-bottom: 12px;
+  }
+  article.carve h3 {
+    margin: 0 0 6px;
+    font-size: 0.98rem;
+  }
+  article.carve p { margin: 0 0 8px; font-size: 0.93rem; }
+  article.carve p:last-child { margin-bottom: 0; }
+
+  footer.page {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    color: var(--text-faint);
+    font-size: 0.84rem;
+  }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 24px 14px 60px; }
+    .loc, dl { margin-left: 0; }
+    article.fix > h3 { flex-direction: column; gap: 2px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <h1>Budget Manager — Code Review</h1>
+  <p class="meta">17 August 2026 · branch <code>claude/budget-mgmt-next</code> · 18 fixes across <code>backend/</code> and <code>frontend/</code></p>
+</header>
+
+<div class="banner">
+  <h2>Read this first: four tests were already failing before any change</h2>
+  <p>
+    The test suite was <strong>red on <code>main</code></strong> when this review started. Four tests
+    failed before a single line was edited:
+  </p>
+  <ul>
+    <li><code>TestAutoAssign_MatchesBillsToPeriods</code></li>
+    <li><code>TestAutoAssign_UsesFirstPeriodWhenNoneBeforeDueDate</code></li>
+    <li><code>TestAutoAssign_BiweeklyFallsBackWithoutAnchor</code></li>
+    <li><code>TestAutoAssign_QuarterlyFallsBackWithoutAnchor</code></li>
+  </ul>
+  <p>
+    They hard-coded pay dates in early 2026 which have since passed. <code>AutoAssign</code> deliberately
+    ignores pay periods before today, so no <code>INSERT</code> happened and the mock expectations went
+    unmet. This was a <em>pre-existing</em> failure of the tests, not something these changes introduced
+    and not a product regression. The tests were also weaker than they appeared — see
+    <a href="#tests">Tests</a>.
+  </p>
+</div>
+
+<!-- ===================== CRITICAL ===================== -->
+<section class="group" id="critical">
+  <h2 class="group-title"><span class="pill crit">Critical</span> Hangs, data loss, and silently broken features</h2>
+  <p class="group-desc">Each of these could destroy user data, permanently wedge a request, or leave a shipped feature doing nothing at all.</p>
+
+  <article class="fix">
+    <h3><span class="num">01</span> Unbounded loop on an out-of-range weekday</h3>
+    <p class="loc">backend/internal/services/period_generator.go — <code>generateWeekly</code>, <code>generateSemiMonthly</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>The search for the first matching weekday advanced one day at a time until <code>current.Weekday()</code> equalled the configured value:
+        <pre><code>for current.Weekday() != targetWeekday {
+    current = current.AddDate(0, 0, 1)
+}</code></pre>
+      </dd>
+      <dt>Why it mattered</dt>
+      <dd><code>time.Weekday()</code> only ever returns 0–6. A stored weekday outside that range — <code>7</code>, <code>-1</code>, <code>99</code> — never matched, so the loop ran forever. The request goroutine was pinned for the life of the process, leaking one goroutine per attempt. The related <code>generateSemiMonthly</code> accepted day <code>0</code>, which <code>time.Date</code> normalises backwards into the <em>previous</em> month, silently producing pay dates outside the requested window.</dd>
+      <dt>Fix</dt>
+      <dd>Validate the weekday is 0–6 and each semimonthly day is 1–31, returning an error instead of looping. A watchdog test now proves the generator returns rather than hangs.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">02</span> <code>schedule_detail</code> was never validated</h3>
+    <p class="loc">backend/internal/handlers/income.go — <code>Create</code>, <code>Update</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd><code>Create</code> validated only the <code>pay_schedule</code> string and passed <code>schedule_detail</code> straight to the database untouched. <code>Update</code> validated neither, and so happily accepted a <code>pay_schedule</code> of <code>"daily"</code> that <code>Create</code> rejects.</dd>
+      <dt>Why it mattered</dt>
+      <dd>This is the front door for bug #1: it is how a weekday of <code>99</code> reached the database in the first place. The generator was the symptom; this was the cause.</dd>
+      <dt>Fix</dt>
+      <dd>One shared <code>validateSchedule</code> checks the detail against the schedule — weekly needs a weekday 0–6, biweekly a <code>YYYY-MM-DD</code> anchor, semimonthly exactly two days each 1–31, one-time a <code>YYYY-MM-DD</code> date. <code>Create</code> calls it directly. <code>Update</code> is the subtle case: either half of the pair can change independently, so when either is touched it <code>SELECT</code>s the current row and validates the <em>resulting</em> combination.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">03</span> Optimizer applied a batch of moves with no transaction</h3>
+    <p class="loc">backend/internal/handlers/optimizer.go — <code>Apply</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>Each move was a <code>DELETE</code> followed by an <code>INSERT</code>, issued as separate statements straight on the pool. Three separate defects compounded:
+        <ul class="tight">
+          <li>No transaction — a failure partway through a batch left earlier assignments deleted with nothing put back.</li>
+          <li>The target period was never checked, so a bad <code>to_period_id</code> destroyed rows before failing.</li>
+          <li>The optimizer produces a <em>chain</em> of moves, so one assignment can be moved twice (A→B then B→C). The first move replaces the row and gives it a new id; the second still referenced the old id and 404'd — after the first had already committed its delete.</li>
+        </ul>
+      </dd>
+      <dt>Why it mattered</dt>
+      <dd>Straightforward destructive data loss. The user clicks "Apply", something fails halfway, and bills simply vanish from the budget.</dd>
+      <dt>Fix</dt>
+      <dd>The whole batch runs in one transaction (matching the existing <code>bills.Reorder</code> pattern). Every target period is verified to exist <em>before</em> the first delete. A map of original assignment id → current live id lets chained moves resolve to the row that actually exists.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">04</span> Sinking fund silently ate a bill's real assignment</h3>
+    <p class="loc">backend/internal/handlers/sinking_fund.go — <code>Apply</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>The installment upsert used an unguarded <code>ON CONFLICT (bill_id, pay_period_id) DO UPDATE</code>. If the bill already had an ordinary assignment in one of the chosen periods, that row was rewritten into a sinking-fund installment.</dd>
+      <dt>Why it mattered</dt>
+      <dd>The damage only surfaced later. <code>Clear()</code> deletes <code>WHERE is_sinking_fund = true AND sinking_fund_for_period_id = $2</code> — so clearing the sinking fund deleted the user's ordinary assignment outright. A real, planned bill payment disappeared with no trace and no error.</dd>
+      <dt>Fix</dt>
+      <dd>The <code>DO UPDATE</code> now carries a <code>WHERE</code> that only matches rows already flagged as installments for this same target period. When it matches nothing, Postgres returns no row; the handler treats that <code>pgx.ErrNoRows</code> as "this period is occupied, skip it" and carries on with the remaining periods.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">05</span> <code>force</code> on auto-assign was unreachable dead code</h3>
+    <p class="loc">backend/internal/handlers/assignments.go — <code>AutoAssign</code> / <code>assignMonthly</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>The two guards ran in this order:
+        <pre><code>if existingBillMonths[bm] { continue }
+if !req.Force &amp;&amp; manuallyMovedBills[bm] { continue }</code></pre>
+        Every manually-moved bill is also an existing bill for that month, so <code>manuallyMovedBills</code> is a strict subset of <code>existingBillMonths</code>. The first branch always fired first and the second was never reached.</dd>
+      <dt>Why it mattered</dt>
+      <dd>The <code>force</code> flag did nothing whatsoever. Users asking to re-run assignment and override their manual moves got silence and no error.</dd>
+      <dt>Fix</dt>
+      <dd>Reordering alone would have been <em>worse</em> than the bug: the function only ever <code>INSERT</code>s, so force would have left the bill assigned to two periods in the same month. The corrected behaviour is to delete the manual placement(s) for that bill+month first, then insert on the computed period — and to do nothing at all when the manual placement already equals the computed one, avoiding pointless churn. The period ids holding manual placements are captured during the existing pre-fetch, so this costs no extra query.</dd>
+      <dt>Also fixed here</dt>
+      <dd><code>assignMonthly</code> is a closure; a bare <code>return</code> after <code>models.WriteError</code> did not stop the handler, which then wrote a second response body onto the same <code>ResponseWriter</code>. It now returns an <code>error</code> handled at the call site. Relatedly, <code>insertAssignment</code> swallowed every scan error and returned <code>nil</code>, so a genuine failure was indistinguishable from a benign <code>ON CONFLICT DO NOTHING</code>; it now distinguishes the two and propagates real errors.</dd>
+    </dl>
+  </article>
+</section>
+
+<!-- ===================== CORRECTNESS ===================== -->
+<section class="group" id="correctness">
+  <h2 class="group-title"><span class="pill corr">Correctness</span> Wrong numbers, wrong dates, wrong on some runs</h2>
+  <p class="group-desc">These produce plausible-looking but incorrect output — the most expensive kind of bug in a budgeting tool, because the user has no reason to distrust it.</p>
+
+  <article class="fix">
+    <h3><span class="num">06</span> Period totals counted soft-deleted bills</h3>
+    <p class="loc">backend/internal/handlers/{budget_grid,periods,dashboard}.go</p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd><code>COALESCE(SUM(ba.planned_amount), 0)</code> summed <em>every</em> assignment in the period, including ones belonging to bills with <code>is_active = false</code>.</dd>
+      <dt>Why it mattered</dt>
+      <dd>The grid only renders active bills. So the Total and Remaining rows disagreed with the visible rows above them, and no amount of staring at the grid explained the difference. Deleting a bill made the arithmetic wrong forever after.</dd>
+      <dt>Fix</dt>
+      <dd>Join through <code>bills</code> and count only active ones: <code>LEFT JOIN bills ab ON ab.id = ba.bill_id AND ab.is_active = true</code>, then <code>SUM(...) FILTER (WHERE ab.id IS NOT NULL)</code>. The grid's assignment fetch is filtered on <code>b.is_active</code> too, and <code>dashboard.go</code> gained the <code>inc.is_active = true</code> predicate that the grid and periods queries already had.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">07</span> Upcoming bills panel emptied at month end</h3>
+    <p class="loc">backend/internal/handlers/dashboard.go — <code>Summary</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>The 7-day window was computed as arithmetic on the day <em>number</em>:
+        <pre><code>dayOfMonth := now.Day()
+weekLater  := dayOfMonth + 7
+// ... WHERE due_day BETWEEN $1 AND $2</code></pre>
+      </dd>
+      <dt>Why it mattered</dt>
+      <dd>On the 28th this searched for days 28 through 35. Days 32–35 do not exist, and bills due on the 1st–4th of next month — which genuinely <em>are</em> within seven days — were never matched. The panel went blank at the end of every month, exactly when rent and mortgage are due.</dd>
+      <dt>Fix</dt>
+      <dd>Build the actual list of calendar days the window covers (crossing the month boundary properly, de-duplicated) and query <code>due_day = ANY($1)</code>.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">08</span> Sinking fund under-funded and lost cents</h3>
+    <p class="loc">backend/internal/services/sinking_fund.go — <code>PlanSinkingFund</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>The planner split the bill evenly, capped each period at its available surplus — and then stopped. Whatever a tight period could not absorb was simply reported as a shortfall. It also truncated each installment with <code>float64(int(x*100))/100</code>, losing up to a cent per period.</dd>
+      <dt>Why it mattered</dt>
+      <dd>$600 across three periods where the first has zero headroom funded only $400 and reported a $200 shortfall — while the two later periods sat there with ample unused surplus. The tool told the user they could not afford something they could comfortably afford.</dd>
+      <dt>Fix</dt>
+      <dd>Rewritten in integer cents, in two passes. Pass one spreads evenly capped by each period's headroom, giving remainder cents to the earliest periods. Pass two redistributes any remaining shortfall onto periods that still have room. A period's available surplus (<code>income − assigned − buffer</code>) is never exceeded, and a genuine shortfall — where the money really is not there — is still reported honestly.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">09</span> "Today" was midnight UTC, not midnight local</h3>
+    <p class="loc">backend/internal/handlers/assignments.go</p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd><code>time.Now().Truncate(24 * time.Hour)</code>. <code>Truncate</code> measures from the zero instant, not from the local day boundary, so it yields midnight <em>UTC</em>.</dd>
+      <dt>Why it mattered</dt>
+      <dd>For most of the world that is the wrong day. Since <code>AutoAssign</code> skips periods before "today", a period could be wrongly included or excluded near the date boundary.</dd>
+      <dt>Fix</dt>
+      <dd>Build it explicitly from the local year/month/day, expressed in UTC to match how pgx decodes a <code>DATE</code> column.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">10</span> Regenerating periods wiped hand-edited income</h3>
+    <p class="loc">backend/internal/handlers/periods.go — <code>Generate</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd><code>expected_amount = COALESCE(EXCLUDED.expected_amount, pay_periods.expected_amount)</code>. <code>EXCLUDED</code> is the income source's default and is rarely null, so it essentially always won.</dd>
+      <dt>Why it mattered</dt>
+      <dd>Any per-period income the user had adjusted by hand — an overtime cheque, a smaller pay week — was silently reset to the source default every time periods were regenerated. Regeneration happens automatically when the grid loads a new range.</dd>
+      <dt>Fix</dt>
+      <dd>Swap the arguments so the stored value wins and the default only fills a genuine null.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">11</span> Import categorisation differed between runs</h3>
+    <p class="loc">backend/internal/services/xlsx_importer.go — <code>guessCategory</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>Category keywords lived in a <code>map[string][]string</code> and the function ranged over it. Go randomises map iteration order deliberately.</dd>
+      <dt>Why it mattered</dt>
+      <dd>"Car Insurance" matches both <code>insurance</code> and <code>transportation</code>. Whichever the range happened to reach first won, so importing the same spreadsheet twice filed the same bill under different categories — non-reproducible behaviour with no error to explain it.</dd>
+      <dt>Fix</dt>
+      <dd>An ordered slice with specific rules ahead of general ones, so <code>"car payment"</code> and <code>"car insurance"</code> are tested before the bare <code>"insurance"</code>. Verified stable over 500 repeats.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">12</span> Surplus months came back in random order</h3>
+    <p class="loc">backend/internal/services/surplus_detector.go — <code>Detect</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>The result was built by ranging over a map keyed by month — the same map-ordering trap as #11.</dd>
+      <dt>Why it mattered</dt>
+      <dd>The surplus list reshuffled on every request. The UI renders it in the order received, so the same data looked different each time the user opened the page.</dd>
+      <dt>Fix</dt>
+      <dd>Collect the month keys and sort them. The <code>"2006-01"</code> format sorts lexicographically <em>and</em> chronologically, so a plain string sort is correct.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">13</span> A password with punctuation corrupted the database URL</h3>
+    <p class="loc">backend/internal/config/config.go — <code>DatabaseURL</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>The DSN was assembled with <code>fmt.Sprintf</code>, interpolating the password raw.</dd>
+      <dt>Why it mattered</dt>
+      <dd>A password containing <code>@</code>, <code>/</code>, <code>?</code> or <code>:</code> changed the <em>structure</em> of the URL — everything after an <code>@</code> parses as the host, a <code>?</code> starts the query string. The failure mode is a confusing connection error at startup that points nowhere near the password.</dd>
+      <dt>Fix</dt>
+      <dd>Build it with <code>net/url</code>: <code>url.UserPassword</code> percent-encodes the credentials and <code>net.JoinHostPort</code> brackets IPv6 hosts correctly.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">14</span> Turnstile verification had no timeout</h3>
+    <p class="loc">backend/internal/auth/auth.go — <code>VerifyTurnstile</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd><code>http.PostForm</code> uses <code>http.DefaultClient</code>, which has <strong>no timeout at all</strong>.</dd>
+      <dt>Why it mattered</dt>
+      <dd>An unresponsive Cloudflare would hang the login handler indefinitely. Every login attempt during an outage would pile up another stuck goroutine holding a connection.</dd>
+      <dt>Fix</dt>
+      <dd>A package-level <code>http.Client</code> with a 10-second timeout.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">15</span> Login response time revealed valid usernames</h3>
+    <p class="loc">backend/internal/handlers/auth.go — <code>Login</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>A wrong username returned early, skipping the bcrypt comparison entirely.</dd>
+      <dt>Why it mattered</dt>
+      <dd>bcrypt is deliberately slow — that is the whole point of it. Skipping it made a wrong-username response measurably faster than a wrong-password one, so an attacker could enumerate valid usernames by timing alone, with no error message needed.</dd>
+      <dt>Fix</dt>
+      <dd>Both checks always run, and the username is compared with <code>crypto/subtle.ConstantTimeCompare</code>. The two results are combined only after both have completed.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">16</span> Month navigation skipped February and went backwards</h3>
+    <p class="loc">frontend/src/utils/date.ts · components/budget-grid/BudgetGrid.tsx — <code>shiftRange</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>Three compounding mistakes in five lines: <code>new Date(str)</code> parses <code>YYYY-MM-DD</code> as UTC, <code>Date.setMonth()</code> overflows rather than clamping, and <code>toISOString()</code> converts back to UTC.</dd>
+      <dt>Why it mattered</dt>
+      <dd>Shifting <code>2026-01-31</code> forward one month gave <code>2026-03-03</code> — February skipped entirely. Worse, shifting <code>2026-03-31</code> <em>back</em> one month gave that same <code>2026-03-03</code>, moving the date <strong>forward</strong>. The back button moved you forwards.</dd>
+      <dt>Fix</dt>
+      <dd>New <code>toISODateString(d)</code> formats from local calendar fields rather than <code>toISOString()</code>. New <code>addMonths(dateStr, months)</code> shifts on the 1st of the month — where no overflow is possible — then clamps the day to the target month's length. Both build on the existing <code>parseLocalDate</code> helper. Verified: Jan 31 +1 → Feb 28, Mar 31 −1 → Feb 28, and Jan 31 +1 in the 2024 leap year → Feb 29.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">17</span> Entering <code>0</code> did nothing; entering text cleared the amount</h3>
+    <p class="loc">frontend/src/components/budget-grid/BudgetGrid.tsx — <code>handleCellSave</code>, <code>handlePeriodAmountSave</code></p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd>Creation was guarded by <code>else if (amount)</code> — a falsy check. And the value came straight from <code>Number(text)</code> with no validation.</dd>
+      <dt>Why it mattered</dt>
+      <dd>Two distinct failures. A <code>$0</code> assignment is perfectly legitimate (a bill you are skipping this cycle) but <code>0</code> is falsy, so nothing was created and the user got no feedback. Separately, non-numeric text became <code>NaN</code>, which <code>JSON.stringify</code> turns into <code>null</code> — silently wiping an existing amount because of a typo.</dd>
+      <dt>Fix</dt>
+      <dd>One <code>parseAmount</code> helper returning <code>number</code> (a real value, <code>0</code> included), <code>null</code> (deliberately cleared), or <code>undefined</code> (unparseable → skip the write entirely). Used by both save handlers.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3><span class="num">18</span> API client dropped headers; optimizer bypassed the client</h3>
+    <p class="loc">frontend/src/api/client.ts · components/optimizer/OptimizerView.tsx</p>
+    <dl>
+      <dt>What was wrong</dt>
+      <dd><code>request()</code> spread <code>...options</code> <em>after</em> the merged <code>headers</code> object, so any caller passing its own headers replaced the merge wholesale and lost <code>Content-Type</code>. Separately, <code>OptimizerView</code> called raw <code>fetch()</code> for all three of its endpoints.</dd>
+      <dt>Why it mattered</dt>
+      <dd>The header bug is a landmine for the next caller rather than an active break. The raw <code>fetch()</code> calls were live, though: they skipped <code>credentials: 'include'</code>, the 401→login redirect, and the server's error-message unwrapping — so an expired session on the optimizer page produced a generic failure instead of a redirect to login.</dd>
+      <dt>Fix</dt>
+      <dd>Spread <code>options</code> first so the merged headers survive. <code>OptimizerView</code> now uses the shared <code>api.post</code>/<code>api.get</code>, which also unwrap <code>json.data</code>, removing that duplication.</dd>
+    </dl>
+  </article>
+</section>
+
+<!-- ===================== TESTS ===================== -->
+<section class="group" id="tests">
+  <h2 class="group-title"><span class="pill test">Tests</span> Repairing the suite, then covering the fixes</h2>
+  <p class="group-desc">The four pre-existing failures were not merely stale — they were structurally unable to catch the thing they claimed to test.</p>
+
+  <article class="fix">
+    <h3>Why the four failing tests were weaker than they looked</h3>
+    <dl>
+      <dt>Stale dates</dt>
+      <dd>They hard-coded pay dates in early 2026. Those dates have passed, and <code>AutoAssign</code> ignores periods before today, so no <code>INSERT</code> was ever attempted.</dd>
+      <dt>Wrong column count</dt>
+      <dd>Their mock rows returned <strong>14</strong> columns while the handler scans <strong>16</strong> — <code>is_sinking_fund</code> and <code>sinking_fund_for_period_id</code> were missing.</dd>
+      <dt>Swallowed errors</dt>
+      <dd><code>insertAssignment</code> discarded scan errors and returned <code>nil</code>. Combined with the column mismatch, these tests would have <em>passed</em> while the handler silently created nothing at all.</dd>
+      <dt>Assertion gap</dt>
+      <dd>They asserted only on mock expectations, never on the returned assignment — so "the right row landed in the right period" was never actually checked.</dd>
+      <dt>Fix</dt>
+      <dd>A <code>futureMonth(n)</code> helper builds dates relative to <code>time.Now()</code>, used for both the pay dates and the from/to range, so the tests cannot go stale again. Fixtures return the 16 columns actually scanned. Tests now assert on the decoded response body. Three neighbouring anchor-based tests had the same 14-column fixtures and were repaired alongside them.</dd>
+    </dl>
+  </article>
+
+  <article class="fix">
+    <h3>Regression coverage added</h3>
+    <p class="loc">backend/internal/{services,handlers,config}/*_test.go</p>
+    <dl>
+      <dt>The infinite loop</dt>
+      <dd>Runs the generator on its own goroutine behind a <code>select</code>/<code>time.After</code> watchdog, so a regression <strong>fails in two seconds instead of hanging the entire suite</strong>. Weekdays <code>-1</code>, <code>7</code> and <code>99</code> are each checked.</dd>
+      <dt>Schedule validation</dt>
+      <dd>Accepted and rejected cases for both <code>Create</code> and <code>Update</code>, including <code>Update</code> reading the stored half of the pair, and skipping that lookup when the schedule is untouched.</dd>
+      <dt>Auto-assign force</dt>
+      <dd>Force off, force on, force when the placement is already correct (asserting no churn), and force correctly ignoring non-manual assignments.</dd>
+      <dt>Optimizer Apply</dt>
+      <dd>A transaction is used; an unknown target period is rejected <em>before</em> any delete; a failing later move rolls back earlier ones; a chained move follows the new row id.</dd>
+      <dt>Sinking fund</dt>
+      <dd>Even split, indivisible amount funded to the exact cent, redistribution around a zero-headroom period, a genuine shortfall still reported, and an invariant asserting no installment ever exceeds its period's available surplus.</dd>
+      <dt>Determinism</dt>
+      <dd><code>guessCategory</code> stable over 500 repeats; surplus months chronological and byte-identical over 200 repeats.</dd>
+      <dt>Verification method</dt>
+      <dd>Every new test was run against the pre-fix source and confirmed to <strong>fail</strong>. A regression test that passes either way is worthless, so this was checked rather than assumed.</dd>
+    </dl>
+  </article>
+</section>
+
+<!-- ===================== VERIFICATION ===================== -->
+<section class="group" id="verification">
+  <h2 class="group-title">Verification</h2>
+  <p class="group-desc">All commands run clean on the final branch state.</p>
+  <div class="verify">
+    <ul>
+      <li><span>cd backend &amp;&amp; go build ./...</span><span class="pass">PASS</span></li>
+      <li><span>cd backend &amp;&amp; go vet ./...</span><span class="pass">PASS</span></li>
+      <li><span>cd backend &amp;&amp; go test ./... -count=1</span><span class="pass">PASS</span></li>
+      <li><span>cd backend &amp;&amp; go test ./... -race</span><span class="pass">PASS</span></li>
+      <li><span>cd frontend &amp;&amp; npm ci</span><span class="pass">PASS</span></li>
+      <li><span>cd frontend &amp;&amp; npx tsc --noEmit</span><span class="pass">PASS</span></li>
+      <li><span>cd frontend &amp;&amp; npm run build</span><span class="pass">PASS</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===================== NOT CHANGED ===================== -->
+<section class="group" id="deferred">
+  <h2 class="group-title"><span class="pill note">Deferred</span> Found, but deliberately not changed</h2>
+  <p class="group-desc">
+    Each of these is a real problem. None was fixed here, because fixing it alters product behaviour
+    in a way that is a judgement call rather than a defect correction. These need a human decision.
+  </p>
+
+  <article class="carve">
+    <h3>(a) The optimizer's projection assumes you apply the whole chain</h3>
+    <p>
+      The optimizer computes a <em>chain</em> of moves and reports a single projected minimum balance
+      that only holds if every move in that chain is applied. The UI lets the user tick an arbitrary
+      subset and apply just those.
+    </p>
+    <p>
+      So the outcome can differ from the headline number the user was shown, with nothing indicating
+      the discrepancy. Resolving it means choosing a product behaviour: recompute the projection as the
+      selection changes, disable partial selection, or show a caveat. That is a design decision.
+    </p>
+  </article>
+
+  <article class="carve">
+    <h3>(b) <code>canPayFrom</code> compares bare day-of-month</h3>
+    <p>
+      The optimizer's feasibility check is <code>payDay &lt;= dueDay</code> — a comparison of day numbers
+      with no month context. A bill can therefore never be moved to a <em>later</em> paycheck within the
+      same month.
+    </p>
+    <p>
+      The practical effect is that the optimizer explores a far smaller search space than it appears to,
+      and will report "already optimal" for arrangements it simply never considered. Fixing it means
+      comparing real dates, which would change the suggestions the tool produces for existing users.
+    </p>
+  </article>
+
+  <article class="carve">
+    <h3>(c) Sinking funds can reserve from paychecks already spent</h3>
+    <p>
+      Candidate periods are selected with only <code>pp.pay_date &lt; target</code> and no lower bound.
+      There is nothing stopping the planner reaching back into paychecks that have already been
+      received and spent, and reserving money from them.
+    </p>
+    <p>
+      The inactive-income-source half of this problem <strong>was</strong> fixed (period totals now
+      exclude inactive sources — see #6). The missing lower bound was left alone: choosing where the
+      floor belongs — today, the current period, an explicit user-supplied start — is a product
+      decision, not a bug fix.
+    </p>
+  </article>
+
+  <article class="carve">
+    <h3>(d) Tombstones are permanent, and auth is all-or-nothing</h3>
+    <p>
+      <strong>Tombstones never expire.</strong> <code>deleted_bill_periods</code> rows are written on
+      delete and never cleared. Deleting a bill from a period once means auto-assign can never place it
+      there again — permanently, with no UI to undo it. Adding expiry or a reset needs a decision about
+      what users expect "delete" to mean.
+    </p>
+    <p>
+      <strong><code>AuthEnabled()</code> requires all three of</strong> <code>AUTH_USERNAME</code>,
+      <code>AUTH_PASSWORD_HASH</code> and <code>JWT_SECRET</code>. If any one is missing or misspelled,
+      authentication is silently disabled and the entire API is served unauthenticated. One typo in a
+      deployment config is enough. <code>main.go</code> does log a warning, which is the only signal.
+      Failing closed would be safer but would break any deployment intentionally running without auth —
+      so this is deliberately left for the owner to decide.
+    </p>
+    <p>
+      <strong>No frontend test runner is configured.</strong> The frontend has no test framework at all,
+      so fixes #16–#18 are covered only by <code>tsc</code> and the production build. The date-shifting
+      logic in particular is exactly the kind of pure function that unit tests cover well, and would be
+      the natural first thing to test if a runner is added.
+    </p>
+  </article>
+</section>
+
+<footer class="page">
+  Review of <code>izz-linux/budget-mgmt</code> · branch <code>claude/budget-mgmt-next</code>, based on <code>origin/main</code>.
+  18 fixes, regression tests for each, and 4 pre-existing test failures repaired.
+</footer>
+
+</div>
+</body>
+</html>
