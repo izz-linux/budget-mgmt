@@ -35,6 +35,12 @@ func (g *PeriodGenerator) generateWeekly(detail json.RawMessage, from, to time.T
 		return nil, fmt.Errorf("parsing weekly schedule: %w", err)
 	}
 
+	// time.Weekday() only ever returns 0-6. Without this guard an out-of-range
+	// weekday makes the search loop below spin forever, hanging the request.
+	if schedule.Weekday < 0 || schedule.Weekday > 6 {
+		return nil, fmt.Errorf("weekly schedule weekday must be 0-6, got %d", schedule.Weekday)
+	}
+
 	targetWeekday := time.Weekday(schedule.Weekday)
 	var dates []time.Time
 
@@ -98,6 +104,13 @@ func (g *PeriodGenerator) generateSemiMonthly(detail json.RawMessage, from, to t
 
 	if len(schedule.Days) != 2 {
 		return nil, fmt.Errorf("semimonthly schedule must have exactly 2 days, got %d", len(schedule.Days))
+	}
+	// Day 0 (or negative) rolls back into the previous month via time.Date's
+	// normalisation, silently producing pay dates outside the requested month.
+	for _, day := range schedule.Days {
+		if day < 1 || day > 31 {
+			return nil, fmt.Errorf("semimonthly schedule days must be 1-31, got %d", day)
+		}
 	}
 
 	var dates []time.Time

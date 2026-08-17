@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -50,14 +51,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Verify credentials
-	if req.Username != h.cfg.AuthUsername {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{
-			"error": map[string]string{"message": "invalid credentials"},
-		})
-		return
-	}
-	if err := auth.VerifyPassword(h.cfg.AuthPasswordHash, req.Password); err != nil {
+	// Verify credentials. Both checks always run: returning early on a bad
+	// username skipped the deliberately-slow bcrypt comparison, so response
+	// time alone revealed whether a username existed.
+	userOK := subtle.ConstantTimeCompare([]byte(req.Username), []byte(h.cfg.AuthUsername)) == 1
+	passOK := auth.VerifyPassword(h.cfg.AuthPasswordHash, req.Password) == nil
+	if !userOK || !passOK {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": map[string]string{"message": "invalid credentials"},
 		})

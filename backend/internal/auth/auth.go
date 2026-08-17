@@ -56,8 +56,12 @@ type turnstileResponse struct {
 	Success bool `json:"success"`
 }
 
+// turnstileClient replaces http.DefaultClient, which has no timeout at all — an
+// unresponsive Cloudflare would otherwise hang the login handler indefinitely.
+var turnstileClient = &http.Client{Timeout: 10 * time.Second}
+
 func VerifyTurnstile(secretKey, token, remoteIP string) error {
-	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
+	resp, err := turnstileClient.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
 		"secret":   {secretKey},
 		"response": {token},
 		"remoteip": {remoteIP},

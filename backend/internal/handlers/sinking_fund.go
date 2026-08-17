@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
 	"github.com/izz-linux/budget-mgmt/backend/internal/services"
 )
@@ -218,6 +220,11 @@ func (h *SinkingFundHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		}
 		amount := inst.Amount
 		var a models.BillAssignment
+		// The DO UPDATE is deliberately narrow: without the WHERE it would
+		// convert the bill's ordinary assignment in that period into a sinking
+		// fund installment, which Clear() then deletes outright — silently
+		// losing a real assignment. Only take over a row that is already an
+		// installment for this same target period.
 		err = tx.QueryRow(ctx, `
 			INSERT INTO bill_assignments
 				(bill_id, pay_period_id, planned_amount, status, manually_moved, is_sinking_fund, sinking_fund_for_period_id)
@@ -228,6 +235,8 @@ func (h *SinkingFundHandler) Apply(w http.ResponseWriter, r *http.Request) {
 				is_sinking_fund = true,
 				sinking_fund_for_period_id = EXCLUDED.sinking_fund_for_period_id,
 				updated_at = NOW()
+			WHERE bill_assignments.is_sinking_fund = true
+			  AND bill_assignments.sinking_fund_for_period_id = EXCLUDED.sinking_fund_for_period_id
 			RETURNING id, bill_id, pay_period_id, planned_amount, forecast_amount, actual_amount,
 			          status, deferred_to_id, is_extra, COALESCE(extra_name, ''), COALESCE(notes, ''),
 			          manually_moved, is_sinking_fund, sinking_fund_for_period_id, created_at, updated_at
@@ -237,6 +246,11 @@ func (h *SinkingFundHandler) Apply(w http.ResponseWriter, r *http.Request) {
 			&a.Notes, &a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
 			&a.CreatedAt, &a.UpdatedAt,
 		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The period already holds a non-installment assignment for this
+			// bill; leave it alone and skip this period.
+			continue
+		}
 		if err != nil {
 			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 			return

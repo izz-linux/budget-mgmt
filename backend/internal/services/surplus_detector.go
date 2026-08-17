@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
@@ -56,7 +57,16 @@ func (d *SurplusDetector) Detect(sources []models.IncomeSource, from, to time.Ti
 		// Determine expected checks per month
 		expectedPerMonth := d.expectedPerMonth(source)
 
-		for month, count := range monthCounts {
+		// Iterate months in chronological order — ranging over the map directly
+		// made the response order differ between identical requests.
+		months := make([]string, 0, len(monthCounts))
+		for month := range monthCounts {
+			months = append(months, month)
+		}
+		sort.Strings(months) // "2006-01" sorts lexicographically == chronologically
+
+		for _, month := range months {
+			count := monthCounts[month]
 			if count > expectedPerMonth {
 				extra := count - expectedPerMonth
 				t, _ := time.Parse("2006-01", month)

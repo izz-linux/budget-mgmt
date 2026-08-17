@@ -8,8 +8,25 @@ import { useBudgetStore } from '../../stores/budgetStore';
 import { useUIStore } from '../../stores/uiStore';
 import type { Bill, PayPeriod, BillAssignment } from '../../types';
 import { ordinal } from '../../utils/ordinal';
-import { formatShortDate, formatMonthYear, parseLocalDate } from '../../utils/date';
+import { formatShortDate, formatMonthYear, parseLocalDate, addMonths } from '../../utils/date';
 import styles from './BudgetGrid.module.css';
+
+/**
+ * Interpret the text in an amount input.
+ *
+ * Returns the number when it parses, `null` when the field was deliberately
+ * cleared, and `undefined` when the text is not a number at all — the caller
+ * must skip the write in that last case rather than send NaN, which
+ * JSON.stringify turns into `null` and would silently wipe a real amount.
+ * Note 0 is a legitimate amount and must survive as 0, not be treated as empty.
+ */
+function parseAmount(text: string): number | null | undefined {
+  const trimmed = text.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return undefined;
+  return n;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   paid: 'var(--color-success)',
@@ -95,13 +112,9 @@ export function BudgetGrid() {
   }, [periods.length, rangeKey, dateRange.from, dateRange.to, queryClient]);
 
   const shiftRange = useCallback((months: number) => {
-    const from = new Date(dateRange.from);
-    const to = new Date(dateRange.to);
-    from.setMonth(from.getMonth() + months);
-    to.setMonth(to.getMonth() + months);
     setDateRange({
-      from: from.toISOString().split('T')[0],
-      to: to.toISOString().split('T')[0],
+      from: addMonths(dateRange.from, months),
+      to: addMonths(dateRange.to, months),
     });
   }, [dateRange, setDateRange]);
 
@@ -166,11 +179,18 @@ export function BudgetGrid() {
   const handleCellSave = (billId: number, periodId: number) => {
     const key = `${billId}-${periodId}`;
     const existing = assignments[key];
-    const amount = editValue ? Number(editValue) : null;
+    const amount = parseAmount(editValue);
+
+    if (amount === undefined) {
+      // Unparseable input — leave whatever is stored untouched.
+      setEditingCell(null);
+      return;
+    }
 
     if (existing) {
       updateAssignment.mutate({ id: existing.id, planned_amount: amount });
-    } else if (amount) {
+    } else if (amount !== null) {
+      // A $0 assignment is legitimate, so this checks for "cleared", not falsy.
       createAssignment.mutate({
         bill_id: billId,
         pay_period_id: periodId,
@@ -193,7 +213,7 @@ export function BudgetGrid() {
   };
 
   const handlePeriodAmountSave = (periodId: number) => {
-    const amount = periodEditValue ? Number(periodEditValue) : null;
+    const amount = parseAmount(periodEditValue);
     if (amount != null) {
       updatePeriod.mutate({ id: periodId, expected_amount: amount });
     }

@@ -90,10 +90,11 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 	periodRows, err := h.db.Query(ctx, `
 		SELECT pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
 		       pp.actual_amount, COALESCE(pp.notes, ''), pp.created_at, inc.name,
-		       COALESCE(SUM(ba.planned_amount), 0) as total_bills
+		       COALESCE(SUM(ba.planned_amount) FILTER (WHERE ab.id IS NOT NULL), 0) as total_bills
 		FROM pay_periods pp
 		JOIN income_sources inc ON inc.id = pp.income_source_id
 		LEFT JOIN bill_assignments ba ON ba.pay_period_id = pp.id
+		LEFT JOIN bills ab ON ab.id = ba.bill_id AND ab.is_active = true
 		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2 AND inc.is_active = true
 		GROUP BY pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
 		         pp.actual_amount, pp.notes, pp.created_at, inc.name
@@ -134,7 +135,7 @@ func (h *GridHandler) GetGrid(w http.ResponseWriter, r *http.Request) {
 			       b.name
 			FROM bill_assignments ba
 			JOIN bills b ON b.id = ba.bill_id
-			WHERE ba.pay_period_id = ANY($1)
+			WHERE ba.pay_period_id = ANY($1) AND b.is_active = true
 			ORDER BY b.sort_order, b.id
 		`, periodIDs)
 		if err != nil {
