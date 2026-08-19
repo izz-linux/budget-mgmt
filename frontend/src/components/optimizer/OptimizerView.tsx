@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Lightbulb, TrendingUp, Calendar, ArrowRight, Check, CheckSquare, Square } from 'lucide-react';
+import { api } from '../../api/client';
 import { useBudgetStore } from '../../stores/budgetStore';
 import { formatShortDate, parseLocalDate } from '../../utils/date';
 import styles from './OptimizerView.module.css';
@@ -44,16 +45,12 @@ export function OptimizerView() {
   const [applied, setApplied] = useState(false);
 
   const optimizeMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch('/api/v1/optimizer/suggest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: dateRange.from, to: dateRange.to, strategy: 'maximize_minimum_balance' }),
-      });
-      if (!res.ok) throw new Error('Optimization failed');
-      const json = await res.json();
-      return json.data as OptimizationResult;
-    },
+    mutationFn: () =>
+      api.post<OptimizationResult>('/optimizer/suggest', {
+        from: dateRange.from,
+        to: dateRange.to,
+        strategy: 'maximize_minimum_balance',
+      }),
     onSuccess: (data) => {
       // Select all by default
       setSelected(new Set(data.suggestions.map((_, i) => i)));
@@ -62,15 +59,8 @@ export function OptimizerView() {
   });
 
   const applyMutation = useMutation({
-    mutationFn: async (moves: { assignment_id: number; to_period_id: number }[]) => {
-      const res = await fetch('/api/v1/optimizer/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ moves }),
-      });
-      if (!res.ok) throw new Error('Apply failed');
-      return res.json();
-    },
+    mutationFn: (moves: { assignment_id: number; to_period_id: number }[]) =>
+      api.post<unknown>('/optimizer/apply', { moves }),
     onSuccess: () => {
       setApplied(true);
       queryClient.invalidateQueries({ queryKey: ['budget-grid'], exact: false });
@@ -109,12 +99,9 @@ export function OptimizerView() {
 
   const { data: surplusData, isLoading: surplusLoading } = useQuery({
     queryKey: ['surplus', dateRange.from],
-    queryFn: async () => {
+    queryFn: () => {
       const year = parseLocalDate(dateRange.from).getFullYear();
-      const res = await fetch(`/api/v1/optimizer/surplus?from=${year}-01-01&to=${year}-12-31`);
-      if (!res.ok) throw new Error('Failed to load surplus data');
-      const json = await res.json();
-      return json.data as SurplusResult;
+      return api.get<SurplusResult>(`/optimizer/surplus?from=${year}-01-01&to=${year}-12-31`);
     },
   });
 

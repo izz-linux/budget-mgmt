@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,6 +17,74 @@ type IncomeHandler struct {
 
 func NewIncomeHandler(db DBTX) *IncomeHandler {
 	return &IncomeHandler{db: db}
+}
+
+var validPaySchedules = map[string]bool{
+	"weekly": true, "biweekly": true, "semimonthly": true, "one_time": true,
+}
+
+// validateSchedule checks that paySchedule is one we support and that detail is
+// a well-formed payload for it. The period generator trusts these values, so a
+// bad weekday or day-of-month stored here surfaces later as a generation error
+// (or, before the generator was hardened, as a hung request).
+func validateSchedule(paySchedule string, detail json.RawMessage) error {
+	if !validPaySchedules[paySchedule] {
+		return errors.New("pay_schedule must be weekly, biweekly, semimonthly, or one_time")
+	}
+	if len(detail) == 0 || string(detail) == "null" {
+		return errors.New("schedule_detail is required")
+	}
+
+	switch paySchedule {
+	case "weekly":
+		var s models.WeeklySchedule
+		if err := json.Unmarshal(detail, &s); err != nil {
+			return errors.New("schedule_detail must be an object with a weekday field")
+		}
+		if s.Weekday < 0 || s.Weekday > 6 {
+			return errors.New("schedule_detail.weekday must be 0-6 (0=Sunday)")
+		}
+
+	case "biweekly":
+		var s models.BiweeklySchedule
+		if err := json.Unmarshal(detail, &s); err != nil {
+			return errors.New("schedule_detail must be an object with an anchor_date field")
+		}
+		if s.AnchorDate == "" {
+			return errors.New("schedule_detail.anchor_date is required for biweekly")
+		}
+		if _, err := time.Parse("2006-01-02", s.AnchorDate); err != nil {
+			return errors.New("schedule_detail.anchor_date must be in YYYY-MM-DD format")
+		}
+
+	case "semimonthly":
+		var s models.SemiMonthlySchedule
+		if err := json.Unmarshal(detail, &s); err != nil {
+			return errors.New("schedule_detail must be an object with a days array")
+		}
+		if len(s.Days) != 2 {
+			return errors.New("schedule_detail.days must contain exactly 2 days")
+		}
+		for _, d := range s.Days {
+			if d < 1 || d > 31 {
+				return errors.New("schedule_detail.days entries must be 1-31")
+			}
+		}
+
+	case "one_time":
+		var s models.OneTimeSchedule
+		if err := json.Unmarshal(detail, &s); err != nil {
+			return errors.New("schedule_detail must be an object with a date field")
+		}
+		if s.Date == "" {
+			return errors.New("schedule_detail.date is required for one_time")
+		}
+		if _, err := time.Parse("2006-01-02", s.Date); err != nil {
+			return errors.New("schedule_detail.date must be in YYYY-MM-DD format")
+		}
+	}
+
+	return nil
 }
 
 func (h *IncomeHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -92,9 +161,8 @@ func (h *IncomeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "name is required")
 		return
 	}
-	validSchedules := map[string]bool{"weekly": true, "biweekly": true, "semimonthly": true, "one_time": true}
-	if !validSchedules[req.PaySchedule] {
-		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "pay_schedule must be weekly, biweekly, semimonthly, or one_time")
+	if err := validateSchedule(req.PaySchedule, req.ScheduleDetail); err != nil {
+		models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
 
@@ -138,6 +206,33 @@ func (h *IncomeHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		models.WriteError(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
 		return
+	}
+
+	// If either half of the schedule is changing, validate the combination that
+	// will actually be stored — the unchanged half has to come from the DB.
+	if req.PaySchedule != nil || len(req.ScheduleDetail) > 0 {
+		var curSchedule string
+		var curDetail json.RawMessage
+		err = h.db.QueryRow(ctx,
+			`SELECT pay_schedule, schedule_detail FROM income_sources WHERE id = $1`, id,
+		).Scan(&curSchedule, &curDetail)
+		if err != nil {
+			models.WriteError(w, http.StatusNotFound, "NOT_FOUND", "income source not found")
+			return
+		}
+
+		schedule := curSchedule
+		if req.PaySchedule != nil {
+			schedule = *req.PaySchedule
+		}
+		detail := curDetail
+		if len(req.ScheduleDetail) > 0 {
+			detail = req.ScheduleDetail
+		}
+		if err := validateSchedule(schedule, detail); err != nil {
+			models.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+			return
+		}
 	}
 
 	// Build dynamic update to avoid COALESCE issues with intentional NULLs

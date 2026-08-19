@@ -1,7 +1,8 @@
 package config
 
 import (
-	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 )
@@ -42,9 +43,18 @@ func Load() *Config {
 	}
 }
 
+// DatabaseURL builds the connection DSN. It goes through net/url rather than
+// fmt.Sprintf so that a password containing URL-significant characters
+// (@ / ? : #) is percent-encoded instead of corrupting the URL structure.
 func (c *Config) DatabaseURL() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.DBUser, c.DBPassword, c.DBHost, c.DBPort, c.DBName, c.DBSSLMode)
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(c.DBUser, c.DBPassword),
+		Host:   net.JoinHostPort(c.DBHost, strconv.Itoa(c.DBPort)),
+		Path:   "/" + c.DBName,
+	}
+	u.RawQuery = url.Values{"sslmode": {c.DBSSLMode}}.Encode()
+	return u.String()
 }
 
 func getEnv(key, fallback string) string {

@@ -39,10 +39,11 @@ func (h *PeriodHandler) List(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(ctx, `
 		SELECT pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
 		       pp.actual_amount, COALESCE(pp.notes, ''), pp.created_at, inc.name,
-		       COALESCE(SUM(ba.planned_amount), 0) as total_bills
+		       COALESCE(SUM(ba.planned_amount) FILTER (WHERE ab.id IS NOT NULL), 0) as total_bills
 		FROM pay_periods pp
 		JOIN income_sources inc ON inc.id = pp.income_source_id
 		LEFT JOIN bill_assignments ba ON ba.pay_period_id = pp.id
+		LEFT JOIN bills ab ON ab.id = ba.bill_id AND ab.is_active = true
 		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2 AND inc.is_active = true
 		GROUP BY pp.id, pp.income_source_id, pp.pay_date, pp.expected_amount,
 		         pp.actual_amount, pp.notes, pp.created_at, inc.name
@@ -142,7 +143,11 @@ func (h *PeriodHandler) Generate(w http.ResponseWriter, r *http.Request) {
 				INSERT INTO pay_periods (income_source_id, pay_date, expected_amount)
 				VALUES ($1, $2, $3)
 				ON CONFLICT (income_source_id, pay_date) DO UPDATE SET
-					expected_amount = COALESCE(EXCLUDED.expected_amount, pay_periods.expected_amount)
+					-- Stored value wins: EXCLUDED is the income source's default
+					-- and is rarely null, so preferring it would overwrite the
+					-- per-period amount the user hand-edited every time periods
+					-- are regenerated.
+					expected_amount = COALESCE(pay_periods.expected_amount, EXCLUDED.expected_amount)
 				RETURNING id, income_source_id, pay_date, expected_amount, actual_amount, COALESCE(notes, ''), created_at
 			`, source.ID, date, source.DefaultAmount).Scan(
 				&p.ID, &p.IncomeSourceID, &p.PayDate, &p.ExpectedAmount,

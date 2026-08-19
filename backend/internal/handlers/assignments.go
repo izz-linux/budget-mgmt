@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/izz-linux/budget-mgmt/backend/internal/models"
+	"github.com/jackc/pgx/v5"
 )
 
 type AssignmentHandler struct {
@@ -397,11 +399,17 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 	// Track which bills have been manually moved (skip them unless force=true)
 	manuallyMovedBills := make(map[billMonth]bool)
 
+	// Period ids holding the manual placement(s), so force can remove them
+	manualPlacements := make(map[billMonth][]int)
+
 	// Track explicitly deleted bill+period combos (never recreate these)
 	deletedPairs := make(map[billPeriod]bool)
 
-	// Get today's date for skipping past periods
-	today := time.Now().Truncate(24 * time.Hour)
+	// Today at local midnight, expressed in UTC to match how pgx decodes DATE.
+	// time.Now().Truncate(24*time.Hour) measures from the zero instant and so
+	// yields midnight UTC, which is the wrong day for most of the world.
+	nowLocal := time.Now()
+	today := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, time.UTC)
 
 	existRows, err := h.db.Query(ctx, `
 		SELECT ba.bill_id, ba.pay_period_id, pp.pay_date, ba.manually_moved
@@ -427,6 +435,7 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		existingBillMonths[bm] = true
 		if manuallyMoved {
 			manuallyMovedBills[bm] = true
+			manualPlacements[bm] = append(manualPlacements[bm], periodID)
 		}
 	}
 
@@ -483,8 +492,12 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		return best
 	}
 
-	// Helper: insert a single assignment
-	insertAssignment := func(billID int, periodID int, amount *float64) *models.BillAssignment {
+	// Helper: insert a single assignment.
+	// A nil assignment with a nil error means the row already existed
+	// (ON CONFLICT DO NOTHING); any other error is a real failure and must not
+	// be swallowed, or the handler silently reports success having written
+	// nothing.
+	insertAssignment := func(billID int, periodID int, amount *float64) (*models.BillAssignment, error) {
 		var a models.BillAssignment
 		err := h.db.QueryRow(ctx, `
 			INSERT INTO bill_assignments (bill_id, pay_period_id, planned_amount, status)
@@ -495,12 +508,15 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			&a.ID, &a.BillID, &a.PayPeriodID, &a.PlannedAmount, &a.ForecastAmount,
 			&a.ActualAmount, &a.Status, &a.DeferredToID, &a.IsExtra, &a.ExtraName,
 			&a.Notes, &a.ManuallyMoved, &a.IsSinkingFund, &a.SinkingFundForPeriodID,
-		&a.CreatedAt, &a.UpdatedAt,
+			&a.CreatedAt, &a.UpdatedAt,
 		)
-		if err != nil {
-			return nil // ON CONFLICT DO NOTHING or other error
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil // conflict: row already exists, nothing to do
 		}
-		return &a
+		if err != nil {
+			return nil, err
+		}
+		return &a, nil
 	}
 
 	var created []models.BillAssignment
@@ -523,11 +539,13 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 		return anchor, true
 	}
 
-	// Process biweekly bills: compute due dates every 14 days from anchor
-	assignBiweekly := func(bill billInfo) bool {
+	// Process biweekly bills: compute due dates every 14 days from anchor.
+	// Returns handled=false when there is no anchor, so the caller falls back
+	// to monthly.
+	assignBiweekly := func(bill billInfo) (bool, error) {
 		anchor, ok := parseAnchorDate(bill.RecurrenceDetail)
 		if !ok {
-			return false // no anchor, fall back to monthly
+			return false, nil // no anchor, fall back to monthly
 		}
 
 		// Calculate start of biweekly cycle relative to range
@@ -566,18 +584,22 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			a := amount
-			if result := insertAssignment(bill.ID, pid, &a); result != nil {
+			result, err := insertAssignment(bill.ID, pid, &a)
+			if err != nil {
+				return true, err
+			}
+			if result != nil {
 				created = append(created, *result)
 			}
 		}
-		return true
+		return true, nil
 	}
 
 	// Process quarterly bills: compute due dates every 3 months from anchor
-	assignQuarterly := func(bill billInfo) bool {
+	assignQuarterly := func(bill billInfo) (bool, error) {
 		anchor, ok := parseAnchorDate(bill.RecurrenceDetail)
 		if !ok {
-			return false // no anchor, fall back to monthly
+			return false, nil // no anchor, fall back to monthly
 		}
 
 		// Find the first occurrence on or after fromDate
@@ -598,7 +620,11 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 					pid := periods[idx].ID
 					bp := billPeriod{bill.ID, pid}
 					if !existingPairs[bp] && !deletedPairs[bp] {
-						if a := insertAssignment(bill.ID, pid, bill.DefaultAmount); a != nil {
+						a, err := insertAssignment(bill.ID, pid, bill.DefaultAmount)
+						if err != nil {
+							return true, err
+						}
+						if a != nil {
 							created = append(created, *a)
 						}
 					}
@@ -606,14 +632,14 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			}
 			cur = cur.AddDate(0, 3, 0)
 		}
-		return true
+		return true, nil
 	}
 
 	// Process annual bills: compute due dates every 12 months from anchor
-	assignAnnual := func(bill billInfo) bool {
+	assignAnnual := func(bill billInfo) (bool, error) {
 		anchor, ok := parseAnchorDate(bill.RecurrenceDetail)
 		if !ok {
-			return false // no anchor, fall back to monthly
+			return false, nil // no anchor, fall back to monthly
 		}
 
 		// Find the first occurrence on or after fromDate
@@ -634,7 +660,11 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 					pid := periods[idx].ID
 					bp := billPeriod{bill.ID, pid}
 					if !existingPairs[bp] && !deletedPairs[bp] {
-						if a := insertAssignment(bill.ID, pid, bill.DefaultAmount); a != nil {
+						a, err := insertAssignment(bill.ID, pid, bill.DefaultAmount)
+						if err != nil {
+							return true, err
+						}
+						if a != nil {
 							created = append(created, *a)
 						}
 					}
@@ -642,11 +672,11 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			}
 			cur = cur.AddDate(1, 0, 0)
 		}
-		return true
+		return true, nil
 	}
 
 	// Process monthly bills: one assignment per month
-	assignMonthly := func(bill billInfo) {
+	assignMonthly := func(bill billInfo) error {
 		current := time.Date(fromDate.Year(), fromDate.Month(), 1, 0, 0, 0, 0, time.UTC)
 		endMonth := time.Date(toDate.Year(), toDate.Month(), 1, 0, 0, 0, 0, time.UTC)
 
@@ -654,14 +684,13 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			year, month := current.Year(), current.Month()
 			bm := billMonth{bill.ID, year, month}
 
-			// Skip if this bill already has an assignment in this month
-			if existingBillMonths[bm] {
-				current = current.AddDate(0, 1, 0)
-				continue
-			}
-
-			// Skip if this bill was manually moved in this month (unless force)
-			if !req.Force && manuallyMovedBills[bm] {
+			// A month is already covered unless force is on AND the placement
+			// there was a manual one, in which case we relocate it below.
+			// manuallyMovedBills is a subset of existingBillMonths, so the
+			// existing-month check has to make room for the force case rather
+			// than short-circuit ahead of it.
+			forcingManual := req.Force && manuallyMovedBills[bm]
+			if existingBillMonths[bm] && !forcingManual {
 				current = current.AddDate(0, 1, 0)
 				continue
 			}
@@ -678,38 +707,77 @@ func (h *AssignmentHandler) AutoAssign(w http.ResponseWriter, r *http.Request) {
 			}
 
 			idx := findBestPeriod(dueDate)
-			if idx >= 0 {
-				pid := periods[idx].ID
-				bp := billPeriod{bill.ID, pid}
-				// Skip if this bill+period was explicitly deleted
-				if !deletedPairs[bp] {
-					if a := insertAssignment(bill.ID, pid, bill.DefaultAmount); a != nil {
-						created = append(created, *a)
-					}
+			if idx < 0 {
+				current = current.AddDate(0, 1, 0)
+				continue
+			}
+			pid := periods[idx].ID
+			bp := billPeriod{bill.ID, pid}
+
+			// Skip if this bill+period was explicitly deleted
+			if deletedPairs[bp] {
+				current = current.AddDate(0, 1, 0)
+				continue
+			}
+
+			if forcingManual {
+				placements := manualPlacements[bm]
+				// Nothing to do when the manual placement is already where the
+				// computed period would put it — don't churn the row.
+				alreadyCorrect := len(placements) == 1 && placements[0] == pid
+				if alreadyCorrect {
+					current = current.AddDate(0, 1, 0)
+					continue
 				}
+				// Only INSERT follows, so the old placement has to go first or
+				// the bill ends up assigned to two periods in the same month.
+				for _, oldPID := range placements {
+					if _, err := h.db.Exec(ctx, `
+						DELETE FROM bill_assignments
+						WHERE bill_id = $1 AND pay_period_id = $2 AND manually_moved = true
+					`, bill.ID, oldPID); err != nil {
+						return err
+					}
+					delete(existingPairs, billPeriod{bill.ID, oldPID})
+				}
+			}
+
+			a, err := insertAssignment(bill.ID, pid, bill.DefaultAmount)
+			if err != nil {
+				return err
+			}
+			if a != nil {
+				created = append(created, *a)
 			}
 
 			current = current.AddDate(0, 1, 0)
 		}
+		return nil
 	}
 
 	for _, bill := range bills {
+		var handled bool
+		var err error
 		switch bill.Recurrence {
 		case "biweekly":
-			if assignBiweekly(bill) {
-				continue
-			}
+			handled, err = assignBiweekly(bill)
 		case "quarterly":
-			if assignQuarterly(bill) {
-				continue
-			}
+			handled, err = assignQuarterly(bill)
 		case "annual":
-			if assignAnnual(bill) {
-				continue
-			}
+			handled, err = assignAnnual(bill)
+		}
+		if err != nil {
+			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+		if handled {
+			continue
 		}
 		// Monthly or fallback for non-monthly without anchor
-		assignMonthly(bill)
+		if err := assignMonthly(bill); err != nil {
+			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
 	}
 
 	if created == nil {

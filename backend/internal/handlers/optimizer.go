@@ -128,15 +128,46 @@ func (h *OptimizerHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A batch is all-or-nothing: each move is a DELETE followed by an INSERT, so
+	// a failure partway through would otherwise leave assignments destroyed with
+	// no replacement.
+	tx, err := h.db.Begin(ctx)
+	if err != nil {
+		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// Reject unknown target periods up front, before anything is deleted.
+	for _, move := range req.Moves {
+		var exists int
+		err := tx.QueryRow(ctx, `SELECT id FROM pay_periods WHERE id = $1`, move.ToPeriodID).Scan(&exists)
+		if err != nil {
+			models.WriteError(w, http.StatusNotFound, "NOT_FOUND",
+				fmt.Sprintf("pay period %d not found", move.ToPeriodID))
+			return
+		}
+	}
+
+	// The optimizer can chain moves for one bill (A->B then B->C). Each move
+	// replaces the row, so the second move's assignment_id refers to a row that
+	// no longer exists — track where each original assignment currently lives.
+	liveID := make(map[int]int, len(req.Moves))
+
 	var applied []models.BillAssignment
 
 	for _, move := range req.Moves {
+		currentID := move.AssignmentID
+		if mapped, ok := liveID[move.AssignmentID]; ok {
+			currentID = mapped
+		}
+
 		// Look up the existing assignment
 		var billID int
 		var plannedAmount *float64
-		err := h.db.QueryRow(ctx, `
+		err := tx.QueryRow(ctx, `
 			SELECT bill_id, planned_amount FROM bill_assignments WHERE id = $1
-		`, move.AssignmentID).Scan(&billID, &plannedAmount)
+		`, currentID).Scan(&billID, &plannedAmount)
 		if err != nil {
 			models.WriteError(w, http.StatusNotFound, "NOT_FOUND",
 				fmt.Sprintf("assignment %d not found", move.AssignmentID))
@@ -144,7 +175,7 @@ func (h *OptimizerHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Delete the old assignment
-		_, err = h.db.Exec(ctx, `DELETE FROM bill_assignments WHERE id = $1`, move.AssignmentID)
+		_, err = tx.Exec(ctx, `DELETE FROM bill_assignments WHERE id = $1`, currentID)
 		if err != nil {
 			models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 			return
@@ -152,7 +183,7 @@ func (h *OptimizerHandler) Apply(w http.ResponseWriter, r *http.Request) {
 
 		// Create new assignment in the target period, marked as manually_moved
 		var a models.BillAssignment
-		err = h.db.QueryRow(ctx, `
+		err = tx.QueryRow(ctx, `
 			INSERT INTO bill_assignments (bill_id, pay_period_id, planned_amount, status, manually_moved)
 			VALUES ($1, $2, $3, 'pending', true)
 			ON CONFLICT (bill_id, pay_period_id) DO UPDATE SET
@@ -171,7 +202,19 @@ func (h *OptimizerHandler) Apply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Remember the new row id under the original id so a later chained move
+		// that still references the original resolves to the live row.
+		liveID[move.AssignmentID] = a.ID
+		if currentID != move.AssignmentID {
+			liveID[currentID] = a.ID
+		}
+
 		applied = append(applied, a)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		models.WriteError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
 	}
 
 	models.WriteJSON(w, http.StatusOK, applied)

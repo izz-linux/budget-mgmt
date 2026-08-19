@@ -291,21 +291,28 @@ func (imp *XLSXImporter) ParseCellValue(value string) ParsedCellValue {
 func (imp *XLSXImporter) guessCategory(name string) string {
 	lower := strings.ToLower(name)
 
-	categories := map[string][]string{
-		"housing":        {"mortgage", "hoa", "rent"},
-		"utilities":      {"power", "spire", "gas", "water", "sewage", "h2o", "internet", "trash", "verizon", "electric"},
-		"insurance":      {"insurance"},
-		"transportation": {"car payment", "car insurance"},
-		"subscriptions":  {"hulu", "netflix", "apple", "disney", "espn", "aws"},
-		"savings":        {"saving"},
-		"debt":           {"loan", "credit", "chase", "izzcc", "anna"},
-		"personal":       {"haircut", "cleaning", "pest control", "landscaping"},
+	// Ordered, not a map: Go randomises map iteration order, so a name matching
+	// two categories ("Car Insurance" matches both insurance and
+	// transportation) was filed differently between runs. Specific rules come
+	// first and win.
+	categories := []struct {
+		name     string
+		keywords []string
+	}{
+		{"transportation", []string{"car payment", "car insurance"}},
+		{"housing", []string{"mortgage", "hoa", "rent"}},
+		{"utilities", []string{"power", "spire", "gas", "water", "sewage", "h2o", "internet", "trash", "verizon", "electric"}},
+		{"insurance", []string{"insurance"}},
+		{"subscriptions", []string{"hulu", "netflix", "apple", "disney", "espn", "aws"}},
+		{"savings", []string{"saving"}},
+		{"debt", []string{"loan", "credit", "chase", "izzcc", "anna"}},
+		{"personal", []string{"haircut", "cleaning", "pest control", "landscaping"}},
 	}
 
-	for cat, keywords := range categories {
-		for _, kw := range keywords {
+	for _, cat := range categories {
+		for _, kw := range cat.keywords {
 			if strings.Contains(lower, kw) {
-				return cat
+				return cat.name
 			}
 		}
 	}

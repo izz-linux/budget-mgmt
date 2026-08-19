@@ -1,10 +1,12 @@
 const BASE_URL = '/api/v1';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  // Spread options FIRST: with it last, a caller passing its own `headers`
+  // replaced the merged object below and lost Content-Type.
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    credentials: 'include',
     ...options,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
 
   if (res.status === 401 && !path.startsWith('/auth/')) {

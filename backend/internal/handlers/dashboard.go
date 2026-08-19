@@ -42,6 +42,22 @@ type PeriodSummaryItem struct {
 	Remaining      float64 `json:"remaining"`
 }
 
+// upcomingDueDays returns the distinct day-of-month numbers covered by a window
+// of `days` days starting at `from` (inclusive on both ends), so a window that
+// crosses a month boundary still matches next month's early days.
+func upcomingDueDays(from time.Time, days int) []int {
+	seen := make(map[int]bool, days+1)
+	var out []int
+	for i := 0; i <= days; i++ {
+		d := from.AddDate(0, 0, i).Day()
+		if !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -52,11 +68,12 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	// Periods
 	periodRows, err := h.db.Query(ctx, `
 		SELECT pp.id, pp.pay_date, COALESCE(pp.expected_amount, 0), inc.name,
-		       COALESCE(SUM(ba.planned_amount), 0) as total_bills
+		       COALESCE(SUM(ba.planned_amount) FILTER (WHERE ab.id IS NOT NULL), 0) as total_bills
 		FROM pay_periods pp
 		JOIN income_sources inc ON inc.id = pp.income_source_id
 		LEFT JOIN bill_assignments ba ON ba.pay_period_id = pp.id
-		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2
+		LEFT JOIN bills ab ON ab.id = ba.bill_id AND ab.is_active = true
+		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2 AND inc.is_active = true
 		GROUP BY pp.id, inc.name
 		ORDER BY pp.pay_date
 	`, from, to)
@@ -95,16 +112,18 @@ func (h *DashboardHandler) Summary(w http.ResponseWriter, r *http.Request) {
 		WHERE pp.pay_date >= $1 AND pp.pay_date <= $2
 	`, from, to).Scan(&summary.PaidCount, &summary.PendingCount)
 
-	// Upcoming bills (next 7 days)
-	dayOfMonth := now.Day()
-	weekLater := dayOfMonth + 7
+	// Upcoming bills (next 7 days).
+	// A day-number BETWEEN range breaks at month end — on the 28th it searches
+	// days 28-35 and never matches a bill due on the 2nd of next month. Use the
+	// actual calendar days the window covers instead.
+	upcomingDays := upcomingDueDays(now, 7)
 	billRows, err := h.db.Query(ctx, `
 		SELECT id, name, due_day, COALESCE(default_amount, 0), is_autopay
 		FROM bills
 		WHERE is_active = true AND due_day IS NOT NULL
-		AND due_day >= $1 AND due_day <= $2
+		AND due_day = ANY($1)
 		ORDER BY due_day
-	`, dayOfMonth, weekLater)
+	`, upcomingDays)
 	if err == nil {
 		defer billRows.Close()
 		for billRows.Next() {
